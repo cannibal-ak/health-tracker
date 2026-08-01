@@ -1,12 +1,13 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Link } from 'react-router'
-import { getProfile, liveWeights } from '../../db/repo'
+import { getProfile, liveWeights, liveWorkouts } from '../../db/repo'
 import { bmi } from '../../lib/bmi'
 import { formatWeight, fromKg } from '../../lib/units'
-import { fullDate } from '../../lib/dates'
+import { fullDate, startOfWeek, todayISO } from '../../lib/dates'
 import { Card } from '../../ui/Card'
-import { ChevronRightIcon, PlusIcon, ScaleIcon } from '../../ui/Icons'
+import { ChevronRightIcon, DumbbellIcon, PlusIcon, ScaleIcon } from '../../ui/Icons'
 import { BmiChip } from '../weight/WeightPage'
+import { TYPE_META, workoutTitle } from '../workouts/workoutMeta'
 
 function greeting(): string {
   const h = new Date().getHours()
@@ -18,8 +19,13 @@ function greeting(): string {
 export function DashboardPage() {
   const profile = useLiveQuery(getProfile)
   const weights = useLiveQuery(liveWeights)
+  const workouts = useLiveQuery(liveWorkouts)
 
-  if (!profile || !weights) return null
+  if (!profile || !weights || !workouts) return null
+
+  const monday = startOfWeek(todayISO())
+  const weekWorkouts = workouts.filter((w) => w.date >= monday)
+  const latestWorkout = workouts[0]
 
   const latest = weights[0]
   const previous = weights[1]
@@ -109,8 +115,55 @@ export function DashboardPage() {
         )}
       </Card>
 
+      <Card className="mb-4">
+        <div className="flex items-baseline justify-between">
+          <span className="text-sm font-semibold tracking-wide text-slate-500 uppercase dark:text-slate-400">
+            Activity
+          </span>
+          <span className="text-xs text-slate-400">this week</span>
+        </div>
+        {workouts.length === 0 ? (
+          <div className="flex flex-col items-center py-4 text-center">
+            <DumbbellIcon className="mb-2 size-8 text-slate-300 dark:text-slate-600" />
+            <p className="mb-3 text-sm text-slate-500 dark:text-slate-400">
+              Gym, runs or outdoor games — start logging to build your streak.
+            </p>
+            <Link
+              to="/workouts"
+              className="flex items-center gap-1.5 rounded-full bg-brand-600 py-2 pr-4 pl-3 text-sm font-semibold text-white hover:bg-brand-700"
+            >
+              <PlusIcon className="size-4" /> Log a workout
+            </Link>
+          </div>
+        ) : (
+          <div>
+            <div className="mt-2 flex items-end gap-2">
+              <span className="text-4xl font-extrabold tracking-tight">
+                {weekWorkouts.length}
+              </span>
+              <span className="mb-1 text-sm text-slate-500">
+                workout{weekWorkouts.length === 1 ? '' : 's'} this week
+              </span>
+            </div>
+            {latestWorkout && (
+              <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                Last: {TYPE_META[latestWorkout.type].emoji} {workoutTitle(latestWorkout)} ·{' '}
+                {fullDate(latestWorkout.date)}
+              </p>
+            )}
+            <Link
+              to="/workouts"
+              className="mt-4 flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3 text-sm font-medium hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700"
+            >
+              View workouts & streak
+              <ChevronRightIcon className="size-4 text-slate-400" />
+            </Link>
+          </div>
+        )}
+      </Card>
+
       <p className="mt-6 text-center text-xs text-slate-400 dark:text-slate-500">
-        Workouts, health reports, AI insights and reminders are on the way.
+        Health reports, AI insights and reminders are on the way.
       </p>
     </div>
   )

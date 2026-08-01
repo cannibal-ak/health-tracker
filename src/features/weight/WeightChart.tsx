@@ -147,7 +147,7 @@ export function WeightChart({
             strokeWidth={2}
             dot={false}
             activeDot={{ r: 4, fill: SERIES, stroke: 'var(--color-white, #fff)', strokeWidth: 2 }}
-            animationDuration={300}
+            isAnimationActive={false}
           />
         </LineChart>
       </ResponsiveContainer>
