@@ -4,7 +4,8 @@
  */
 export const APP_NAME = 'Health Tracker'
 
-export const GOOGLE_OAUTH_CLIENT_ID = '' // set during Google Drive setup
+export const GOOGLE_OAUTH_CLIENT_ID =
+  '431079764060-es9u6ljh0trd322c5ojugho89vjkhfak.apps.googleusercontent.com'
 
 export const DRIVE_FOLDER_NAME = 'Health Tracker Data'
 export const DRIVE_REPORTS_FOLDER_NAME = 'Reports'
