@@ -35,6 +35,10 @@ export async function buildGuidanceSystemPrompt(): Promise<string> {
   )
   const metrics = await db.metrics.filter((m) => !m.deletedAt).toArray()
   const reminders = await db.reminders.filter((r) => !r.deletedAt && r.enabled).toArray()
+  const reports = (await db.reports.filter((r) => !r.deletedAt).toArray()).sort((a, b) =>
+    b.reportDate.localeCompare(a.reportDate),
+  )
+  const medicines = await db.medicines.filter((m) => !m.deletedAt).toArray()
 
   const lines: string[] = []
   lines.push(`Today: ${today}`)
@@ -68,15 +72,52 @@ export async function buildGuidanceSystemPrompt(): Promise<string> {
     lines.push('Workouts: none logged in the last 14 days')
   }
 
-  // Latest value per metric key.
-  const latestByKey = new Map<string, (typeof metrics)[number]>()
+  // Recent history per metric key (up to 3 values, oldest→newest) so the
+  // assistant can talk about trends, not just the latest number.
+  const byKey = new Map<string, (typeof metrics)[number][]>()
   for (const m of [...metrics].sort((a, b) => a.date.localeCompare(b.date))) {
-    latestByKey.set(m.key === 'other' ? `other:${m.label}` : m.key, m)
+    const k = m.key === 'other' ? `other:${m.label}:${m.unit}` : m.key
+    if (!byKey.has(k)) byKey.set(k, [])
+    byKey.get(k)!.push(m)
   }
-  if (latestByKey.size) {
-    lines.push('Latest health metrics (user-confirmed, from their own reports):')
-    for (const m of latestByKey.values()) {
-      lines.push(`- ${m.label}: ${m.value} ${m.unit} (${m.date}, ${m.flag})`)
+  if (byKey.size) {
+    lines.push('Health metrics (user-confirmed, from their own reports; oldest→newest):')
+    for (const list of byKey.values()) {
+      const recent = list.slice(-3)
+      const label = recent[recent.length - 1].label
+      const unit = recent[recent.length - 1].unit
+      const seq = recent.map((m) => `${m.value} (${m.date}, ${m.flag})`).join(' → ')
+      lines.push(`- ${label} [${unit}]: ${seq}`)
+    }
+  }
+
+  if (reports.length) {
+    lines.push('Uploaded checkup reports (metadata only — file contents are NOT included here):')
+    for (const r of reports.slice(0, 15)) {
+      const read =
+        r.extractionStatus === 'reviewed'
+          ? 'values extracted into metrics above'
+          : 'NOT yet read by AI'
+      lines.push(`- ${r.reportDate}: "${r.title}" (${r.category}) — ${read}`)
+    }
+  } else {
+    lines.push('Uploaded checkup reports: none yet')
+  }
+
+  if (medicines.length) {
+    const active = medicines.filter((m) => m.active)
+    const stopped = medicines.filter((m) => !m.active)
+    if (active.length) {
+      lines.push('Current medicines / supplements (as recorded by the user):')
+      for (const m of active) {
+        const bits = [m.dose, m.timing, m.reason ? `for ${m.reason}` : null, m.startDate ? `since ${m.startDate}` : null]
+          .filter(Boolean)
+          .join(', ')
+        lines.push(`- ${m.name}${bits ? ` — ${bits}` : ''}${m.note ? ` (${m.note})` : ''}`)
+      }
+    }
+    if (stopped.length) {
+      lines.push(`Previously taken (stopped): ${stopped.map((m) => m.name).join(', ')}`)
     }
   }
 
@@ -88,9 +129,11 @@ export async function buildGuidanceSystemPrompt(): Promise<string> {
 
 STRICT RULES:
 - General wellness information only: diet, hydration, recovery, stretching, sleep, training habits.
-- You are NOT a doctor. Never diagnose, never interpret lab values as a diagnosis, never suggest starting/stopping/changing any medication.
+- You are NOT a doctor. Never diagnose, never interpret lab values as a diagnosis, never suggest starting, stopping, changing the dose of, or replacing ANY medicine — not even supplements. Questions about drug interactions, side effects, or dosing get one answer: ask the prescribing doctor or a pharmacist.
 - If a metric is flagged high/low or the user describes symptoms, advise them to discuss it with a doctor.
+- The report LIST below shows what the user uploaded, but you cannot see inside the files. If they ask about a report marked "NOT yet read by AI", tell them to open the Reports tab and tap the ✨ AI button on it — then its values will appear in your data.
 - When the user tells you what they trained today, give practical diet suggestions (protein, hydration, timing), recovery care for the trained muscle groups (rest, stretching, sleep), and what to watch out for.
+- If asked to summarize their health, structure it as short sections: overall picture, weight & activity, lab values worth attention (with dates), medicines as recorded, and 2-3 practical suggestions — ending with what to bring up at the next doctor visit. Stay factual to the data; no diagnoses.
 - Ground advice in their actual data below when relevant. Keep answers short, warm and practical — this is a phone chat. Use plain text, no markdown tables.
 
 USER DATA:

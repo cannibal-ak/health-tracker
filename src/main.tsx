@@ -9,6 +9,7 @@ import { WorkoutsPage } from './features/workouts/WorkoutsPage'
 import { ReportsPage } from './features/reports/ReportsPage'
 import { MetricsPage } from './features/metrics/MetricsPage'
 import { RemindersPage } from './features/reminders/RemindersPage'
+import { MedicinesPage } from './features/medicines/MedicinesPage'
 import { GuidancePage } from './features/guidance/GuidancePage'
 import { SettingsPage } from './features/settings/SettingsPage'
 
@@ -25,6 +26,7 @@ const router = createHashRouter([
       { path: 'reports', element: <ReportsPage /> },
       { path: 'metrics', element: <MetricsPage /> },
       { path: 'reminders', element: <RemindersPage /> },
+      { path: 'medicines', element: <MedicinesPage /> },
       { path: 'chat', element: <GuidancePage /> },
       { path: 'settings', element: <SettingsPage /> },
     ],

@@ -2,6 +2,7 @@ import Dexie, { type EntityTable } from 'dexie'
 import type {
   ChatMessage,
   FileBlob,
+  Medicine,
   Metric,
   Reminder,
   Report,
@@ -18,6 +19,7 @@ export const db = new Dexie('health-tracker') as Dexie & {
   metrics: EntityTable<Metric, 'id'>
   reminders: EntityTable<Reminder, 'id'>
   chats: EntityTable<ChatMessage, 'id'>
+  medicines: EntityTable<Medicine, 'id'>
   settings: EntityTable<SettingsRow, 'key'>
 }
 
@@ -30,4 +32,9 @@ db.version(1).stores({
   reminders: 'id, nextDue, updatedAt',
   chats: 'id, updatedAt',
   settings: 'key',
+})
+
+// v2: medicines. Existing stores keep their data — Dexie only adds the new one.
+db.version(2).stores({
+  medicines: 'id, updatedAt',
 })

@@ -119,6 +119,22 @@ export interface Reminder extends BaseEntity {
   enabled: boolean
 }
 
+// ---------- Medicines ----------
+
+export interface Medicine extends BaseEntity {
+  name: string
+  /** e.g. "500 mg", "1 tablet" */
+  dose?: string
+  /** e.g. "morning & night, after food" or "1-0-1" */
+  timing?: string
+  /** What it's for, e.g. "Vitamin D deficiency" */
+  reason?: string
+  startDate?: ISODate
+  /** false = stopped (kept for history) */
+  active: boolean
+  note?: string
+}
+
 // ---------- Guidance chat ----------
 
 export interface ChatMessage extends BaseEntity {

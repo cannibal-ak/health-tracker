@@ -202,18 +202,26 @@ export function DashboardPage() {
         )}
       </Card>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-3 gap-3">
         <Link
           to="/chat"
-          className="rounded-2xl bg-white p-4 text-center shadow-sm ring-1 ring-slate-900/5 transition-transform hover:bg-slate-50 active:scale-[0.98] dark:bg-slate-900 dark:ring-white/10 dark:hover:bg-slate-800"
+          className="rounded-2xl bg-white p-3 text-center shadow-sm ring-1 ring-slate-900/5 transition-transform hover:bg-slate-50 active:scale-[0.98] dark:bg-slate-900 dark:ring-white/10 dark:hover:bg-slate-800"
         >
           <span className="mb-1 block text-2xl">💬</span>
-          <span className="block text-sm font-semibold">Health chat</span>
-          <span className="block text-xs text-slate-400">diet & recovery advice</span>
+          <span className="block text-sm font-semibold">Chat</span>
+          <span className="block text-xs text-slate-400">ask anything</span>
+        </Link>
+        <Link
+          to="/medicines"
+          className="rounded-2xl bg-white p-3 text-center shadow-sm ring-1 ring-slate-900/5 transition-transform hover:bg-slate-50 active:scale-[0.98] dark:bg-slate-900 dark:ring-white/10 dark:hover:bg-slate-800"
+        >
+          <span className="mb-1 block text-2xl">💊</span>
+          <span className="block text-sm font-semibold">Medicines</span>
+          <span className="block text-xs text-slate-400">what you take</span>
         </Link>
         <Link
           to="/reminders"
-          className="rounded-2xl bg-white p-4 text-center shadow-sm ring-1 ring-slate-900/5 transition-transform hover:bg-slate-50 active:scale-[0.98] dark:bg-slate-900 dark:ring-white/10 dark:hover:bg-slate-800"
+          className="rounded-2xl bg-white p-3 text-center shadow-sm ring-1 ring-slate-900/5 transition-transform hover:bg-slate-50 active:scale-[0.98] dark:bg-slate-900 dark:ring-white/10 dark:hover:bg-slate-800"
         >
           <span className="mb-1 block text-2xl">⏰</span>
           <span className="block text-sm font-semibold">Reminders</span>

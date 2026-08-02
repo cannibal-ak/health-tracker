@@ -8,6 +8,7 @@ import { z } from 'zod'
 import { db } from '../db/db'
 import type {
   ChatMessage,
+  Medicine,
   Metric,
   Profile,
   Reminder,
@@ -116,6 +117,19 @@ const reminderSchema = z
 
 const chatSchema = z.object({ ...base, role: z.string(), text: z.string() }).passthrough()
 
+const medicineSchema = z
+  .object({
+    ...base,
+    name: z.string(),
+    dose: z.string().optional(),
+    timing: z.string().optional(),
+    reason: z.string().optional(),
+    startDate: z.string().optional(),
+    active: z.boolean(),
+    note: z.string().optional(),
+  })
+  .passthrough()
+
 const profileSchema = z
   .object({
     value: z
@@ -145,6 +159,8 @@ export const healthDocSchema = z
     metrics: z.array(metricSchema),
     reminders: z.array(reminderSchema),
     chats: z.array(chatSchema),
+    // Added in app v2 — docs written by older versions won't have it.
+    medicines: z.array(medicineSchema).optional().default([]),
   })
   .passthrough()
 
@@ -165,6 +181,7 @@ export interface HealthDoc {
   metrics: Metric[]
   reminders: Reminder[]
   chats: ChatMessage[]
+  medicines: Medicine[]
 }
 
 // ---------- Pure merge (exported for tests) ----------
@@ -230,15 +247,17 @@ function pruneTombstones<T extends Stamped>(rows: T[], now: number): T[] {
 
 export async function exportDoc(revision: number, deviceId: string): Promise<HealthDoc> {
   const now = Date.now()
-  const [weights, workouts, reports, metrics, reminders, chats, profileRow] = await Promise.all([
-    db.weights.toArray(),
-    db.workouts.toArray(),
-    db.reports.toArray(),
-    db.metrics.toArray(),
-    db.reminders.toArray(),
-    db.chats.toArray(),
-    db.settings.get('profile'),
-  ])
+  const [weights, workouts, reports, metrics, reminders, chats, medicines, profileRow] =
+    await Promise.all([
+      db.weights.toArray(),
+      db.workouts.toArray(),
+      db.reports.toArray(),
+      db.metrics.toArray(),
+      db.reminders.toArray(),
+      db.chats.toArray(),
+      db.medicines.toArray(),
+      db.settings.get('profile'),
+    ])
   return {
     schemaVersion: SCHEMA_VERSION,
     revision,
@@ -256,6 +275,7 @@ export async function exportDoc(revision: number, deviceId: string): Promise<Hea
     metrics: pruneTombstones(metrics, now),
     reminders: pruneTombstones(reminders, now),
     chats: pruneTombstones(chats, now),
+    medicines: pruneTombstones(medicines, now),
   }
 }
 
@@ -290,7 +310,17 @@ export async function importMerge(raw: unknown): Promise<MergeStats> {
 
   await db.transaction(
     'rw',
-    [db.weights, db.workouts, db.reports, db.blobs, db.metrics, db.reminders, db.chats, db.settings],
+    [
+      db.weights,
+      db.workouts,
+      db.reports,
+      db.blobs,
+      db.metrics,
+      db.reminders,
+      db.chats,
+      db.medicines,
+      db.settings,
+    ],
     async () => {
       await mergeTable(db.weights as unknown as StampedTable, doc.weights)
       await mergeTable(db.workouts as unknown as StampedTable, doc.workouts)
@@ -308,6 +338,7 @@ export async function importMerge(raw: unknown): Promise<MergeStats> {
       await mergeTable(db.metrics as unknown as StampedTable, doc.metrics)
       await mergeTable(db.reminders as unknown as StampedTable, doc.reminders)
       await mergeTable(db.chats as unknown as StampedTable, doc.chats)
+      await mergeTable(db.medicines as unknown as StampedTable, doc.medicines ?? [])
 
       // Profile: single row, LWW by its updatedAt stamp.
       if (doc.profile) {

@@ -10,6 +10,7 @@ import {
   type BaseEntity,
   type ChatMessage,
   type ISODate,
+  type Medicine,
   type Metric,
   type Profile,
   type Reminder,
@@ -248,6 +249,34 @@ export function liveReminders(): Promise<Reminder[]> {
     .orderBy('nextDue')
     .filter((r) => !r.deletedAt)
     .toArray()
+}
+
+// ---------- Medicines ----------
+
+export async function addMedicine(data: Omit<Medicine, keyof BaseEntity>): Promise<void> {
+  await db.medicines.add(stampNew(data))
+  markDirty()
+}
+
+export async function updateMedicine(
+  id: string,
+  changes: Partial<Omit<Medicine, keyof BaseEntity>>,
+): Promise<void> {
+  await db.medicines.update(id, { ...changes, updatedAt: Date.now() })
+  markDirty()
+}
+
+export async function deleteMedicine(id: string): Promise<void> {
+  await db.medicines.update(id, { deletedAt: Date.now(), updatedAt: Date.now() })
+  markDirty()
+}
+
+export async function liveMedicines(): Promise<Medicine[]> {
+  const rows = await db.medicines.filter((m) => !m.deletedAt).toArray()
+  // Active first, then by name.
+  return rows.sort((a, b) =>
+    a.active === b.active ? a.name.localeCompare(b.name) : a.active ? -1 : 1,
+  )
 }
 
 // ---------- Guidance chat ----------

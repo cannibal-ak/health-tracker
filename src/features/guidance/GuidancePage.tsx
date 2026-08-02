@@ -137,8 +137,28 @@ export function GuidancePage() {
         <>
           <div className="flex-1 space-y-3 overflow-y-auto pb-2">
             {messages.length === 0 && (
-              <div className="py-8 text-center text-sm text-slate-400">
-                Try: "Did legs today — squats 4x8 at 60kg and lunges. What should I eat tonight?"
+              <div className="py-6 text-center">
+                <p className="mb-4 text-sm text-slate-400">
+                  Ask about your data, or try one of these:
+                </p>
+                <div className="flex flex-wrap justify-center gap-2">
+                  {[
+                    'Summarize my health',
+                    'How are my lab values trending?',
+                    'Did chest today — what should I eat?',
+                    'What should I ask my doctor next visit?',
+                  ].map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => {
+                        setInput(s)
+                      }}
+                      className="rounded-full bg-white px-3.5 py-2 text-xs font-medium text-slate-600 shadow-sm ring-1 ring-slate-900/10 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-300 dark:ring-white/10"
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
             {messages.map((m) => (
