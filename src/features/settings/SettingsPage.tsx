@@ -11,6 +11,7 @@ import {
 import { Card, CardTitle } from '../../ui/Card'
 import { Field, Segmented, Select, TextInput } from '../../ui/Field'
 import { ShareIcon } from '../../ui/Icons'
+import { DriveCard } from './DriveCard'
 
 function isStandalone(): boolean {
   return (
@@ -107,6 +108,8 @@ export function SettingsPage() {
         </Field>
       </Card>
 
+      <DriveCard />
+
       {!isStandalone() && (
         <Card className="mb-4">
           <CardTitle>Install this app</CardTitle>
@@ -177,8 +180,8 @@ export function SettingsPage() {
           Health Tracker — your personal health companion.
         </p>
         <p className="mt-2 text-xs text-slate-400">
-          All data stays on your device. Google Drive backup and AI features are coming in the
-          next updates.
+          Your data lives on your device and, if connected, in your own Google Drive. AI features
+          are coming in the next updates.
         </p>
       </Card>
     </div>

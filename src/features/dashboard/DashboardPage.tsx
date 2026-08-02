@@ -1,6 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Link } from 'react-router'
-import { getProfile, liveWeights, liveWorkouts } from '../../db/repo'
+import { getProfile, getSyncMeta, liveWeights, liveWorkouts } from '../../db/repo'
 import { bmi } from '../../lib/bmi'
 import { formatWeight, fromKg } from '../../lib/units'
 import { fullDate, startOfWeek, todayISO } from '../../lib/dates'
@@ -20,6 +20,7 @@ export function DashboardPage() {
   const profile = useLiveQuery(getProfile)
   const weights = useLiveQuery(liveWeights)
   const workouts = useLiveQuery(liveWorkouts)
+  const syncMeta = useLiveQuery(getSyncMeta)
 
   if (!profile || !weights || !workouts) return null
 
@@ -43,6 +44,15 @@ export function DashboardPage() {
       <p className="mb-5 text-sm text-slate-500 dark:text-slate-400">
         Your health, in one place — private, on your device.
       </p>
+
+      {syncMeta?.status === 'reconnect_needed' && (
+        <Link to="/settings">
+          <div className="mb-4 flex items-center justify-between rounded-xl bg-amber-100 px-4 py-3 text-sm font-medium text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">
+            Backup paused — tap to reconnect Google Drive
+            <ChevronRightIcon className="size-4 shrink-0" />
+          </div>
+        </Link>
+      )}
 
       {needsProfile && (
         <Link to="/settings">

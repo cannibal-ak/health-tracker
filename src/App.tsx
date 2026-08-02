@@ -3,6 +3,7 @@ import { NavLink, Outlet } from 'react-router'
 import { useRegisterSW } from 'virtual:pwa-register/react'
 import { DumbbellIcon, FileIcon, HomeIcon, ScaleIcon, SettingsIcon } from './ui/Icons'
 import { requestPersistentStorage } from './lib/persistence'
+import { initSyncTriggers } from './sync/syncEngine'
 
 const TABS = [
   { to: '/', label: 'Home', icon: HomeIcon },
@@ -42,6 +43,7 @@ export default function App() {
   useEffect(() => {
     // Protect IndexedDB from eviction (best-effort; matters on iOS).
     void requestPersistentStorage()
+    initSyncTriggers()
   }, [])
 
   return (

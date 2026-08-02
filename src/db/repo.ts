@@ -12,6 +12,7 @@ import {
   type Profile,
   type Report,
   type ReportCategory,
+  type SyncMeta,
   type WeightEntry,
   type Workout,
 } from './schema'
@@ -165,8 +166,42 @@ export async function getProfile(): Promise<Profile> {
 }
 
 export async function saveProfile(profile: Profile): Promise<void> {
-  await db.settings.put({ key: 'profile', value: profile })
+  // updatedAt on the row drives the LWW merge for the profile during sync.
+  await db.settings.put({ key: 'profile', value: profile, updatedAt: Date.now() } as never)
   markDirty()
+}
+
+// ---------- Sync-internal report updates ----------
+
+/**
+ * Record a successful Drive upload. Bumps updatedAt + dirty so other
+ * devices learn the driveFileId through the next doc push (otherwise
+ * they would re-upload a duplicate).
+ */
+export async function setReportDriveFileId(id: string, driveFileId: string | null): Promise<void> {
+  await db.reports.update(id, { driveFileId, updatedAt: Date.now() })
+  markDirty()
+}
+
+/** Store a blob downloaded back from Drive (restore path). No dirty flag. */
+export async function putRestoredBlob(blobId: string, blob: Blob, thumb?: Blob): Promise<void> {
+  await db.blobs.put({ id: blobId, blob, thumb })
+}
+
+// ---------- Sync meta (device-local, never exported) ----------
+
+/** Read-only (safe inside useLiveQuery). deviceId is '' until first save. */
+export async function getSyncMeta(): Promise<SyncMeta> {
+  const row = await db.settings.get('syncMeta')
+  return (row?.value as SyncMeta) ?? { deviceId: '', status: 'disconnected' }
+}
+
+export async function saveSyncMeta(changes: Partial<SyncMeta>): Promise<SyncMeta> {
+  const current = await getSyncMeta()
+  const next = { ...current, ...changes }
+  if (!next.deviceId) next.deviceId = newId()
+  await db.settings.put({ key: 'syncMeta', value: next })
+  return next
 }
 
 /** AI config is local-only (never synced) but read/written through the same table. */

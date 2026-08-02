@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Report } from '../../db/schema'
-import { getReportBlob } from '../../db/repo'
+import { ensureReportBlob } from '../../sync/syncEngine'
 import { fullDate } from '../../lib/dates'
 import { XIcon } from '../../ui/Icons'
 import { openPdf } from './pdfUtils'
@@ -20,12 +20,18 @@ export function ReportViewer({ report, onClose }: { report: Report; onClose: () 
     let destroyPdf: (() => void) | null = null
 
     void (async () => {
-      const row = await getReportBlob(report.blobId)
+      // Local first; falls back to downloading from Drive when connected.
+      const blob = await ensureReportBlob(report)
       if (cancelled) return
-      if (!row) {
-        setError('The file for this report is missing on this device.')
+      if (!blob) {
+        setError(
+          report.driveFileId
+            ? 'This file is in your Drive backup but could not be downloaded right now. Check your connection and Drive status in Settings.'
+            : 'The file for this report is missing on this device.',
+        )
         return
       }
+      const row = { blob }
       if (row.blob.type === 'application/pdf') {
         try {
           const doc = await openPdf(row.blob)
@@ -53,7 +59,7 @@ export function ReportViewer({ report, onClose }: { report: Report; onClose: () 
       if (objectUrl) URL.revokeObjectURL(objectUrl)
       destroyPdf?.()
     }
-  }, [report.blobId])
+  }, [report])
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-slate-950/95">
