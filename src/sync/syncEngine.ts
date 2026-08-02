@@ -294,11 +294,21 @@ async function runSync(interactive: boolean): Promise<SyncResult> {
     })
     return { ok: true, restored, foundRemote }
   } catch (e) {
-    // A revoked/expired token surfaces as Drive 401 — evict it and route the
-    // UI to "reconnect" (with a working popup) instead of a dead-end error.
-    if (e instanceof drive.DriveError && e.status === 401) {
+    // 401: revoked/expired token. 403 insufficient scopes: the user left the
+    // Drive checkbox unticked on Google's consent screen. Either way the
+    // token is useless — evict it and route to "reconnect" instead of a
+    // dead-end raw error.
+    if (e instanceof drive.DriveError && (e.status === 401 || e.status === 403)) {
       clearToken()
-      if (await stillConnected()) await saveSyncMeta({ status: 'reconnect_needed' })
+      if (await stillConnected()) {
+        await saveSyncMeta({
+          status: 'reconnect_needed',
+          lastError:
+            e.status === 403
+              ? 'Google did not grant Drive access — when reconnecting, tick the checkbox that lets Health Tracker manage its own Drive files.'
+              : undefined,
+        })
+      }
       return { ok: false, error: 'auth-needed' }
     }
     if (await stillConnected()) {

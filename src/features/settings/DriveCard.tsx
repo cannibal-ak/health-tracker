@@ -126,8 +126,8 @@ export function DriveCard() {
               <span className="font-medium">{meta.accountEmail}</span>
             </div>
           )}
-          {meta.status === 'error' && meta.lastError && (
-            <p className="mt-1 rounded-lg bg-red-50 p-2 text-xs text-red-700 dark:bg-red-950 dark:text-red-300">
+          {meta.status !== 'ok' && meta.lastError && (
+            <p className="mt-1 rounded-lg bg-amber-50 p-2 text-xs text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
               {meta.lastError}
             </p>
           )}
