@@ -18,17 +18,21 @@ export function Sheet({
 
   useBodyScrollLock(open)
 
+  // Focus management depends on `open` ONLY. Including `onClose` (a new
+  // function identity every render) made this effect re-run per keystroke,
+  // yanking focus off the input — on phones that hides the keyboard.
+  useEffect(() => {
+    if (!open) return
+    const previouslyFocused = document.activeElement as HTMLElement | null
+    panelRef.current?.focus()
+    return () => previouslyFocused?.focus?.()
+  }, [open])
+
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
     document.addEventListener('keydown', onKey)
-    // Move focus into the dialog; restore it when the sheet closes.
-    const previouslyFocused = document.activeElement as HTMLElement | null
-    panelRef.current?.focus()
-    return () => {
-      document.removeEventListener('keydown', onKey)
-      previouslyFocused?.focus?.()
-    }
+    return () => document.removeEventListener('keydown', onKey)
   }, [open, onClose])
 
   if (!open) return null
