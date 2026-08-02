@@ -69,22 +69,27 @@ async function verifyOrNull(token: string, fileId?: string): Promise<string | nu
   }
 }
 
-/** Find-or-create the Drive folder layout; returns fresh ids. */
+/**
+ * Find-or-create the Drive folder layout; returns fresh ids.
+ * Search results are createdTime-ordered, and the search is re-run even when
+ * a cached id verifies — two devices doing their first sync concurrently can
+ * each create a folder/db file, and both must converge on the SAME (oldest)
+ * canonical one. Extra db files are returned for merge-and-trash.
+ */
 async function ensureIds(token: string, meta: SyncMeta) {
-  let folderId = await verifyOrNull(token, meta.folderId)
+  const folderSearch = await drive.searchFiles(
+    token,
+    `appProperties has { key='${DRIVE_APP_TAG.key}' and value='${DRIVE_APP_TAG.value}' } ` +
+      `and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+  )
+  let folderId: string | null = folderSearch[0]?.id ?? null
+  if (!folderId) folderId = (await verifyOrNull(token, meta.folderId)) ?? null
   if (!folderId) {
-    const found = await drive.searchFiles(
-      token,
-      `appProperties has { key='${DRIVE_APP_TAG.key}' and value='${DRIVE_APP_TAG.value}' } ` +
-        `and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-    )
-    folderId =
-      found[0]?.id ??
-      (
-        await drive.createFolder(token, DRIVE_FOLDER_NAME, {
-          appProperties: { [DRIVE_APP_TAG.key]: DRIVE_APP_TAG.value },
-        })
-      ).id
+    folderId = (
+      await drive.createFolder(token, DRIVE_FOLDER_NAME, {
+        appProperties: { [DRIVE_APP_TAG.key]: DRIVE_APP_TAG.value },
+      })
+    ).id
   }
 
   let reportsFolderId = await verifyOrNull(token, meta.reportsFolderId)
@@ -98,16 +103,23 @@ async function ensureIds(token: string, meta: SyncMeta) {
       found[0]?.id ?? (await drive.createFolder(token, DRIVE_REPORTS_FOLDER_NAME, { parentId: folderId })).id
   }
 
-  let dbFileId = await verifyOrNull(token, meta.dbFileId)
-  if (!dbFileId) {
+  // Db file: search across ALL app-tagged folders (duplicates from a
+  // first-connect race may live in a sibling folder) plus the canonical one.
+  const dbSearch = new Map<string, drive.DriveFile>()
+  for (const folder of folderSearch.length ? folderSearch : [{ id: folderId }]) {
     const found = await drive.searchFiles(
       token,
-      `'${folderId}' in parents and name='${drive.q(DRIVE_DB_FILENAME)}' and trashed=false`,
+      `'${folder.id}' in parents and name='${drive.q(DRIVE_DB_FILENAME)}' and trashed=false`,
     )
-    dbFileId = found[0]?.id ?? null
+    for (const f of found) dbSearch.set(f.id, f)
   }
+  const dbFiles = [...dbSearch.values()].sort((a, b) =>
+    (a.createdTime ?? '').localeCompare(b.createdTime ?? ''),
+  )
+  const dbFileId = dbFiles[0]?.id ?? (await verifyOrNull(token, meta.dbFileId))
+  const duplicateDbFileIds = dbFiles.slice(1).map((f) => f.id)
 
-  return { folderId, reportsFolderId, dbFileId }
+  return { folderId, reportsFolderId, dbFileId, duplicateDbFileIds }
 }
 
 // ---------- the sync cycle ----------
@@ -171,6 +183,21 @@ async function runSync(interactive: boolean): Promise<SyncResult> {
       if (failure) return failure
     }
 
+    // Duplicate db files from a first-connect race on another device:
+    // absorb their records, then trash them so both devices converge.
+    for (const dupId of ids.duplicateDbFileIds) {
+      try {
+        const blob = await drive.downloadFile(token, dupId)
+        const raw: unknown = JSON.parse(await blob.text())
+        const merged = await importMerge(raw)
+        restored = { remoteWins: (restored?.remoteWins ?? 0) + merged.remoteWins }
+        remoteRevision = Math.max(remoteRevision, (raw as { revision?: number }).revision ?? 0)
+        await drive.trashFile(token, dupId)
+      } catch {
+        // Unreadable duplicate: leave it for manual inspection; never block sync.
+      }
+    }
+
     // -- upload report files that aren't backed up yet --
     const pending = await db.reports
       .filter((r) => !r.deletedAt && r.driveFileId === null)
@@ -224,10 +251,10 @@ async function runSync(interactive: boolean): Promise<SyncResult> {
     }
 
     const revision = Math.max(remoteRevision, meta.lastRevision ?? 0) + 1
-    const doc = await exportDoc(revision, meta.deviceId)
-    // Claim the dirty flag BEFORE uploading: writes that land during the
-    // upload re-set it and correctly schedule another cycle.
+    // Claim the dirty flag BEFORE the export snapshot: writes landing during
+    // export or upload re-set it and correctly schedule another cycle.
     clearDirty()
+    const doc = await exportDoc(revision, meta.deviceId)
     let uploaded: drive.DriveFile
     try {
       uploaded = await drive.uploadMultipart(token, {
@@ -242,7 +269,10 @@ async function runSync(interactive: boolean): Promise<SyncResult> {
       throw e
     }
 
-    const accountEmail = meta.accountEmail ?? (await fetchAccountEmail(token)) ?? undefined
+    // Interactive connects may have switched Google accounts — re-fetch then.
+    const accountEmail = interactive
+      ? ((await fetchAccountEmail(token)) ?? meta.accountEmail)
+      : (meta.accountEmail ?? (await fetchAccountEmail(token)) ?? undefined)
     await saveSyncMeta({
       dbFileId: uploaded.id,
       lastRevision: revision,
@@ -261,11 +291,25 @@ async function runSync(interactive: boolean): Promise<SyncResult> {
 /** Single-flight sync. `interactive` only from a user tap (may open a popup). */
 export function syncNow(interactive = false): Promise<SyncResult> {
   if (!inFlight) {
-    inFlight = runSync(interactive).finally(() => {
-      inFlight = null
+    const p = runSync(interactive).finally(() => {
+      if (inFlight === p) inFlight = null
     })
+    inFlight = p
+    return p
   }
-  return inFlight
+  if (!interactive) return inFlight
+  // A user tap must not be swallowed by an in-flight SILENT cycle (it would
+  // never show the popup). Acquire the token now — still inside the user
+  // gesture window — then run a fresh cycle after the current one finishes;
+  // that cycle picks the token up from cache.
+  const auth = getAccessToken(true).catch(() => null)
+  const prev = inFlight
+  const chained = Promise.all([auth, prev.catch(() => undefined)]).then(() => runSync(true))
+  const wrapped = chained.finally(() => {
+    if (inFlight === wrapped) inFlight = null
+  })
+  inFlight = wrapped
+  return wrapped
 }
 
 /** Connect (or reconnect) from Settings — interactive, returns restore info. */
@@ -276,8 +320,15 @@ export function connectDrive(): Promise<SyncResult> {
 /** Forget tokens and stop syncing. Local data stays. */
 export async function disconnectDrive(): Promise<void> {
   clearToken()
+  // Clear account identity and remote ids — a later reconnect may use a
+  // different Google account, and stale ids/email would misreport where
+  // the data actually lives.
   await saveSyncMeta({
     status: 'disconnected',
+    accountEmail: undefined,
+    folderId: undefined,
+    reportsFolderId: undefined,
+    dbFileId: undefined,
     lastError: undefined,
   })
 }

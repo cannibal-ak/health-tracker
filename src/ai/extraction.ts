@@ -124,6 +124,22 @@ function toCandidate(raw: unknown): MetricCandidate | null {
   }
 }
 
+/**
+ * Recompute flag/suspect after the user edits a value in the review screen —
+ * a corrected value must never keep the stale AI-computed flag.
+ */
+export function reflagCandidate(c: MetricCandidate, newValue: number): MetricCandidate {
+  const def = METRIC_BY_KEY.get(c.key)
+  const { flag, source } = computeFlag(def, newValue, c.labRefLow, c.labRefHigh)
+  return {
+    ...c,
+    value: newValue,
+    flag,
+    flagSource: source,
+    suspect: def ? newValue < def.plausibleMin || newValue > def.plausibleMax : false,
+  }
+}
+
 export async function extractFromReport(report: Report): Promise<ExtractionOutcome> {
   const config = await getAIConfig()
   const providerId = config.activeProvider

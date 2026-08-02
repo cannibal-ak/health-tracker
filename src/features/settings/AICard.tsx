@@ -37,19 +37,19 @@ export function AICard() {
     setBusy(true)
     setStatus(null)
     try {
+      // Verify FIRST — an invalid key must not be stored (the provider tab
+      // checkmark means "verified", not "typed something").
+      if (key) await provider.validateKey(key)
       await saveAIConfig({
         ...config,
         keys: { ...config.keys, [active]: key || undefined },
         models: { ...config.models, [active]: model || undefined },
       })
-      if (key) {
-        await provider.validateKey(key)
-        setStatus('✓ Key verified and saved (stored only on this device).')
-      } else {
-        setStatus('Key removed.')
-      }
+      setStatus(
+        key ? '✓ Key verified and saved (stored only on this device).' : 'Key removed.',
+      )
     } catch (e) {
-      setStatus(`✗ ${e instanceof Error ? e.message : 'Verification failed'}`)
+      setStatus(`✗ ${e instanceof Error ? e.message : 'Verification failed'} — nothing saved.`)
     } finally {
       setBusy(false)
     }

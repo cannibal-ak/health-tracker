@@ -20,8 +20,19 @@ function rrule(r: Reminder): string {
   }
 }
 
-function icsStamp(d: Date): string {
+/** UTC stamp — required format for DTSTAMP only. */
+function icsUtcStamp(d: Date): string {
   return d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
+}
+
+/**
+ * Floating local time (no 'Z'). RFC 5545 expands RRULEs in DTSTART's zone,
+ * so a UTC DTSTART would shift weekly/monthly alarms onto the wrong local
+ * day and drift across DST. Floating time follows the user's clock.
+ */
+function icsLocalStamp(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}T${p(d.getHours())}${p(d.getMinutes())}00`
 }
 
 /**
@@ -37,8 +48,8 @@ export function reminderToIcs(r: Reminder): string {
     'PRODID:-//Health Tracker//EN',
     'BEGIN:VEVENT',
     `UID:ht-${r.id}@health-tracker`,
-    `DTSTAMP:${icsStamp(new Date(start))}`,
-    `DTSTART:${icsStamp(start)}`,
+    `DTSTAMP:${icsUtcStamp(new Date())}`,
+    `DTSTART:${icsLocalStamp(start)}`,
     `SUMMARY:${r.title.replace(/[\n,;]/g, ' ')}`,
     ...(rule ? [rule] : []),
     'BEGIN:VALARM',

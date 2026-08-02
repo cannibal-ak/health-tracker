@@ -68,6 +68,17 @@ function daysInMonth(d: Date): number {
   return new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
 }
 
+/**
+ * Next due AFTER completing the task today. Anchors past end-of-today so a
+ * task done at 07:30 can never re-arm for 08:00 the same day (which would
+ * collapse an every-N-days cycle to under an hour).
+ */
+export function computeNextAfterDone(schedule: ReminderSchedule, now: Date): string {
+  const endOfToday = new Date(now)
+  endOfToday.setHours(23, 59, 59, 999)
+  return computeNextDue(schedule, endOfToday)
+}
+
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 export function describeSchedule(s: ReminderSchedule): string {

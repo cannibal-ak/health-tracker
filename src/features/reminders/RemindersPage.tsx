@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import type { Reminder, ReminderSchedule } from '../../db/schema'
 import { addReminder, deleteReminder, liveReminders, updateReminder } from '../../db/repo'
-import { computeNextDue, describeSchedule } from '../../lib/reminderSchedule'
+import { computeNextAfterDone, computeNextDue, describeSchedule } from '../../lib/reminderSchedule'
 import { shareReminderIcs } from '../../lib/ics'
 import { Card } from '../../ui/Card'
 import { Sheet } from '../../ui/Sheet'
@@ -18,7 +18,8 @@ export async function markReminderDone(r: Reminder): Promise<void> {
   } else {
     await updateReminder(r.id, {
       lastDone: new Date().toISOString(),
-      nextDue: computeNextDue(r.schedule, new Date()),
+      // Done today = covered today; advance to the next occurrence AFTER today.
+      nextDue: computeNextAfterDone(r.schedule, new Date()),
       snoozedUntil: undefined,
     })
   }
@@ -90,14 +91,24 @@ export function RemindersPage() {
     if (freq === 'weekly' && daysOfWeek.length === 0) return
     setSaving(true)
     try {
-      const nextDue = computeNextDue(schedule, new Date())
       if (editing) {
-        await updateReminder(editing.id, { title: title.trim(), schedule, nextDue, enabled: true })
+        // Recompute nextDue only when the schedule actually changed — a
+        // title-only edit must not dismiss a currently-due occurrence.
+        const scheduleChanged = JSON.stringify(schedule) !== JSON.stringify(editing.schedule)
+        await updateReminder(editing.id, {
+          title: title.trim(),
+          schedule,
+          ...(scheduleChanged
+            ? { nextDue: computeNextDue(schedule, new Date()), snoozedUntil: undefined }
+            : {}),
+          // Preserve the on/off state — editing must not silently re-enable.
+          enabled: editing.enabled,
+        })
       } else {
         await addReminder({
           title: title.trim(),
           schedule,
-          nextDue,
+          nextDue: computeNextDue(schedule, new Date()),
           enabled: true,
         })
       }

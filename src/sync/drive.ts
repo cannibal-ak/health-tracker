@@ -31,12 +31,15 @@ export interface DriveFile {
   mimeType: string
   appProperties?: Record<string, string>
   modifiedTime?: string
+  createdTime?: string
 }
 
+/** Results sorted oldest-first so concurrent devices pick the same canonical file. */
 export async function searchFiles(token: string, q: string): Promise<DriveFile[]> {
   const params = new URLSearchParams({
     q,
-    fields: 'files(id,name,mimeType,appProperties,modifiedTime)',
+    fields: 'files(id,name,mimeType,appProperties,modifiedTime,createdTime)',
+    orderBy: 'createdTime',
     pageSize: '100',
     spaces: 'drive',
   })

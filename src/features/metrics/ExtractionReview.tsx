@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { Report } from '../../db/schema'
-import type { ExtractionOutcome, MetricCandidate } from '../../ai/extraction'
+import { reflagCandidate, type ExtractionOutcome, type MetricCandidate } from '../../ai/extraction'
 import { addMetrics, updateReport } from '../../db/repo'
 import { todayISO } from '../../lib/dates'
 import { Field, PrimaryButton, TextInput } from '../../ui/Field'
@@ -26,7 +26,9 @@ export function ExtractionReview({
 
   const setValue = (i: number, raw: string) => {
     const v = parseFloat(raw)
-    setRows((rs) => rs.map((r, j) => (j === i ? { ...r, value: Number.isFinite(v) ? v : r.value } : r)))
+    if (!Number.isFinite(v)) return
+    // Re-flag against the same ranges — an edited value must not keep the old chip.
+    setRows((rs) => rs.map((r, j) => (j === i ? reflagCandidate(r, v) : r)))
   }
 
   const save = async () => {

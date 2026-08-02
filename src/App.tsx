@@ -4,7 +4,7 @@ import { useRegisterSW } from 'virtual:pwa-register/react'
 import { DumbbellIcon, FileIcon, HomeIcon, ScaleIcon, SettingsIcon } from './ui/Icons'
 import { requestPersistentStorage } from './lib/persistence'
 import { initSyncTriggers } from './sync/syncEngine'
-import { liveReminders } from './db/repo'
+import { DIRTY_EVENT, liveReminders } from './db/repo'
 import { isDue } from './lib/reminderSchedule'
 
 /** App-icon badge with the due-reminder count (feature-detected; no-op elsewhere). */
@@ -66,8 +66,18 @@ export default function App() {
     const onVisible = () => {
       if (document.visibilityState === 'visible') void updateAppBadge()
     }
+    const onDirty = () => void updateAppBadge() // reminder edits/done/snooze
+    // Minute tick catches reminders BECOMING due while the app stays open.
+    const tick = setInterval(() => {
+      if (document.visibilityState === 'visible') void updateAppBadge()
+    }, 60_000)
     document.addEventListener('visibilitychange', onVisible)
-    return () => document.removeEventListener('visibilitychange', onVisible)
+    window.addEventListener(DIRTY_EVENT, onDirty)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener(DIRTY_EVENT, onDirty)
+      clearInterval(tick)
+    }
   }, [])
 
   return (

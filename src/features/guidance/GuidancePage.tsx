@@ -22,8 +22,10 @@ export function GuidancePage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pendingWorkout, setPendingWorkout] = useState<ParsedWorkout | null>(null)
+  const [savingWorkout, setSavingWorkout] = useState(false)
   const [acked, setAcked] = useState(() => localStorage.getItem(ACK_KEY) === '1')
   const bottomRef = useRef<HTMLDivElement>(null)
+  const parseSeq = useRef(0)
 
   const configured = Boolean(
     (aiConfig?.value as { activeProvider?: string | null } | undefined)?.activeProvider,
@@ -49,9 +51,13 @@ export function GuidancePage() {
       await appendChatMessage('assistant', reply)
       // Chat-to-log: if the message looks like a workout description, parse it
       // in the background and offer to save (never saved without a tap).
+      // Sequence guard: only the LATEST message's parse may set the chip.
       if (mightDescribeWorkout(text)) {
+        const seq = ++parseSeq.current
         void parseWorkoutFromText(text)
-          .then((w) => setPendingWorkout(w))
+          .then((w) => {
+            if (seq === parseSeq.current) setPendingWorkout(w)
+          })
           .catch(() => {})
       }
     } catch (e) {
@@ -62,10 +68,15 @@ export function GuidancePage() {
   }
 
   const saveParsedWorkout = async () => {
-    if (!pendingWorkout) return
-    await addWorkout({ date: todayISO(), ...pendingWorkout })
-    setPendingWorkout(null)
-    await appendChatMessage('assistant', '📋 Saved that workout to your log — nice work!')
+    if (!pendingWorkout || savingWorkout) return
+    setSavingWorkout(true)
+    try {
+      await addWorkout({ date: todayISO(), ...pendingWorkout })
+      setPendingWorkout(null)
+      await appendChatMessage('assistant', '📋 Saved that workout to your log — nice work!')
+    } finally {
+      setSavingWorkout(false)
+    }
   }
 
   return (
@@ -163,9 +174,10 @@ export function GuidancePage() {
               </span>
               <button
                 onClick={() => void saveParsedWorkout()}
-                className="shrink-0 rounded-full bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white"
+                disabled={savingWorkout}
+                className="shrink-0 rounded-full bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
               >
-                Save
+                {savingWorkout ? 'Saving…' : 'Save'}
               </button>
               <button
                 onClick={() => setPendingWorkout(null)}
