@@ -10,10 +10,13 @@ import {
   type BaseEntity,
   type ISODate,
   type Profile,
+  type Report,
+  type ReportCategory,
   type WeightEntry,
   type Workout,
 } from './schema'
 import { newId } from '../lib/id'
+import { sha256 } from '../lib/hash'
 
 const DIRTY_KEY = 'ht-dirty'
 export const DIRTY_EVENT = 'ht-dirty-changed'
@@ -84,6 +87,74 @@ export async function updateWorkout(
 export async function deleteWorkout(id: string): Promise<void> {
   await db.workouts.update(id, { deletedAt: Date.now(), updatedAt: Date.now() })
   markDirty()
+}
+
+// ---------- Reports ----------
+
+export interface NewReportInput {
+  title: string
+  reportDate: ISODate
+  category: ReportCategory
+  tags: string[]
+  file: Blob & { type: string }
+  thumb?: Blob
+}
+
+/** Store a report: binary in `blobs`, metadata (synced) in `reports`. */
+export async function addReport(input: NewReportInput): Promise<string> {
+  const blobId = newId()
+  const report = stampNew({
+    title: input.title,
+    reportDate: input.reportDate,
+    category: input.category,
+    tags: input.tags,
+    mimeType: input.file.type || 'application/octet-stream',
+    sizeBytes: input.file.size,
+    sha256: await sha256(input.file),
+    blobId,
+    driveFileId: null,
+    extractionStatus: 'none' as const,
+  })
+  await db.transaction('rw', db.reports, db.blobs, async () => {
+    await db.blobs.add({ id: blobId, blob: input.file, thumb: input.thumb })
+    await db.reports.add(report)
+  })
+  markDirty()
+  return report.id
+}
+
+export async function updateReport(
+  id: string,
+  changes: Partial<Pick<Report, 'title' | 'reportDate' | 'category' | 'tags' | 'extractionStatus'>>,
+): Promise<void> {
+  await db.reports.update(id, { ...changes, updatedAt: Date.now() })
+  markDirty()
+}
+
+/**
+ * Soft-delete the report (tombstone syncs; phase 4 trashes the Drive copy)
+ * but hard-delete the local binary to reclaim space immediately.
+ */
+export async function deleteReport(id: string): Promise<void> {
+  const report = await db.reports.get(id)
+  if (!report) return
+  await db.transaction('rw', db.reports, db.blobs, async () => {
+    await db.reports.update(id, { deletedAt: Date.now(), updatedAt: Date.now() })
+    await db.blobs.delete(report.blobId)
+  })
+  markDirty()
+}
+
+export function liveReports(): Promise<Report[]> {
+  return db.reports
+    .orderBy('reportDate')
+    .reverse()
+    .filter((r) => !r.deletedAt)
+    .toArray()
+}
+
+export async function getReportBlob(blobId: string) {
+  return db.blobs.get(blobId)
 }
 
 // ---------- Settings ----------

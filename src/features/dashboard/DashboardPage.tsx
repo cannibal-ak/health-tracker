@@ -163,7 +163,7 @@ export function DashboardPage() {
       </Card>
 
       <p className="mt-6 text-center text-xs text-slate-400 dark:text-slate-500">
-        Health reports, AI insights and reminders are on the way.
+        Drive backup, AI insights and reminders are on the way.
       </p>
     </div>
   )

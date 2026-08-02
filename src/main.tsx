@@ -6,6 +6,7 @@ import App from './App'
 import { DashboardPage } from './features/dashboard/DashboardPage'
 import { WeightPage } from './features/weight/WeightPage'
 import { WorkoutsPage } from './features/workouts/WorkoutsPage'
+import { ReportsPage } from './features/reports/ReportsPage'
 import { SettingsPage } from './features/settings/SettingsPage'
 
 // Hash router: works identically under any GitHub Pages base path and in the
@@ -18,6 +19,7 @@ const router = createHashRouter([
       { index: true, element: <DashboardPage /> },
       { path: 'weight', element: <WeightPage /> },
       { path: 'workouts', element: <WorkoutsPage /> },
+      { path: 'reports', element: <ReportsPage /> },
       { path: 'settings', element: <SettingsPage /> },
     ],
   },

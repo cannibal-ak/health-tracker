@@ -9,6 +9,9 @@ const base = process.env.BASE_PATH || '/'
 
 export default defineConfig({
   base,
+  // Pre-bundling pdfjs-dist breaks its module worker handshake in dev
+  // (silent hang). Serve it as native ESM instead.
+  optimizeDeps: { exclude: ['pdfjs-dist'] },
   plugins: [
     react(),
     tailwindcss(),

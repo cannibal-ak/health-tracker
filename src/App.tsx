@@ -1,13 +1,14 @@
 import { useEffect } from 'react'
 import { NavLink, Outlet } from 'react-router'
 import { useRegisterSW } from 'virtual:pwa-register/react'
-import { DumbbellIcon, HomeIcon, ScaleIcon, SettingsIcon } from './ui/Icons'
+import { DumbbellIcon, FileIcon, HomeIcon, ScaleIcon, SettingsIcon } from './ui/Icons'
 import { requestPersistentStorage } from './lib/persistence'
 
 const TABS = [
   { to: '/', label: 'Home', icon: HomeIcon },
   { to: '/weight', label: 'Weight', icon: ScaleIcon },
   { to: '/workouts', label: 'Workouts', icon: DumbbellIcon },
+  { to: '/reports', label: 'Reports', icon: FileIcon },
   { to: '/settings', label: 'Settings', icon: SettingsIcon },
 ]
 
