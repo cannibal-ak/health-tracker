@@ -1,13 +1,15 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Link } from 'react-router'
-import { getProfile, getSyncMeta, liveWeights, liveWorkouts } from '../../db/repo'
+import { getProfile, getSyncMeta, liveReminders, liveWeights, liveWorkouts } from '../../db/repo'
 import { bmi } from '../../lib/bmi'
 import { formatWeight, fromKg } from '../../lib/units'
 import { fullDate, startOfWeek, todayISO } from '../../lib/dates'
-import { Card } from '../../ui/Card'
+import { isDue } from '../../lib/reminderSchedule'
+import { Card, CardTitle } from '../../ui/Card'
 import { ChevronRightIcon, DumbbellIcon, PlusIcon, ScaleIcon } from '../../ui/Icons'
 import { BmiChip } from '../weight/WeightPage'
 import { TYPE_META, workoutTitle } from '../workouts/workoutMeta'
+import { markReminderDone, snoozeReminder } from '../reminders/RemindersPage'
 
 function greeting(): string {
   const h = new Date().getHours()
@@ -21,8 +23,11 @@ export function DashboardPage() {
   const weights = useLiveQuery(liveWeights)
   const workouts = useLiveQuery(liveWorkouts)
   const syncMeta = useLiveQuery(getSyncMeta)
+  const reminders = useLiveQuery(liveReminders)
 
   if (!profile || !weights || !workouts) return null
+
+  const dueReminders = (reminders ?? []).filter((r) => isDue(r, new Date()))
 
   const monday = startOfWeek(todayISO())
   const weekWorkouts = workouts.filter((w) => w.date >= monday)
@@ -52,6 +57,31 @@ export function DashboardPage() {
             <ChevronRightIcon className="size-4 shrink-0" />
           </div>
         </Link>
+      )}
+
+      {dueReminders.length > 0 && (
+        <Card className="mb-4">
+          <CardTitle>Due now</CardTitle>
+          <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+            {dueReminders.map((r) => (
+              <li key={r.id} className="flex items-center gap-2 py-2.5">
+                <span className="min-w-0 flex-1 truncate font-medium">⏰ {r.title}</span>
+                <button
+                  onClick={() => void markReminderDone(r)}
+                  className="shrink-0 rounded-full bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white"
+                >
+                  Done
+                </button>
+                <button
+                  onClick={() => void snoozeReminder(r)}
+                  className="shrink-0 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-500 dark:bg-slate-800"
+                >
+                  Later
+                </button>
+              </li>
+            ))}
+          </ul>
+        </Card>
       )}
 
       {needsProfile && (
@@ -172,9 +202,26 @@ export function DashboardPage() {
         )}
       </Card>
 
-      <p className="mt-6 text-center text-xs text-slate-400 dark:text-slate-500">
-        Drive backup, AI insights and reminders are on the way.
-      </p>
+      <div className="grid grid-cols-2 gap-3">
+        <Link
+          to="/chat"
+          className="rounded-2xl bg-white p-4 text-center shadow-sm ring-1 ring-slate-900/5 transition-transform hover:bg-slate-50 active:scale-[0.98] dark:bg-slate-900 dark:ring-white/10 dark:hover:bg-slate-800"
+        >
+          <span className="mb-1 block text-2xl">💬</span>
+          <span className="block text-sm font-semibold">Health chat</span>
+          <span className="block text-xs text-slate-400">diet & recovery advice</span>
+        </Link>
+        <Link
+          to="/reminders"
+          className="rounded-2xl bg-white p-4 text-center shadow-sm ring-1 ring-slate-900/5 transition-transform hover:bg-slate-50 active:scale-[0.98] dark:bg-slate-900 dark:ring-white/10 dark:hover:bg-slate-800"
+        >
+          <span className="mb-1 block text-2xl">⏰</span>
+          <span className="block text-sm font-semibold">Reminders</span>
+          <span className="block text-xs text-slate-400">
+            {reminders?.filter((r) => r.enabled).length || 'no'} active
+          </span>
+        </Link>
+      </div>
     </div>
   )
 }

@@ -4,6 +4,24 @@ import { useRegisterSW } from 'virtual:pwa-register/react'
 import { DumbbellIcon, FileIcon, HomeIcon, ScaleIcon, SettingsIcon } from './ui/Icons'
 import { requestPersistentStorage } from './lib/persistence'
 import { initSyncTriggers } from './sync/syncEngine'
+import { liveReminders } from './db/repo'
+import { isDue } from './lib/reminderSchedule'
+
+/** App-icon badge with the due-reminder count (feature-detected; no-op elsewhere). */
+async function updateAppBadge(): Promise<void> {
+  try {
+    const nav = navigator as Navigator & {
+      setAppBadge?: (n: number) => Promise<void>
+      clearAppBadge?: () => Promise<void>
+    }
+    if (!nav.setAppBadge) return
+    const due = (await liveReminders()).filter((r) => isDue(r, new Date())).length
+    if (due > 0) await nav.setAppBadge(due)
+    else await nav.clearAppBadge?.()
+  } catch {
+    // Badging is best-effort (iOS requires notification permission).
+  }
+}
 
 const TABS = [
   { to: '/', label: 'Home', icon: HomeIcon },
@@ -44,6 +62,12 @@ export default function App() {
     // Protect IndexedDB from eviction (best-effort; matters on iOS).
     void requestPersistentStorage()
     initSyncTriggers()
+    void updateAppBadge()
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void updateAppBadge()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
   }, [])
 
   return (

@@ -8,6 +8,8 @@ import { WeightPage } from './features/weight/WeightPage'
 import { WorkoutsPage } from './features/workouts/WorkoutsPage'
 import { ReportsPage } from './features/reports/ReportsPage'
 import { MetricsPage } from './features/metrics/MetricsPage'
+import { RemindersPage } from './features/reminders/RemindersPage'
+import { GuidancePage } from './features/guidance/GuidancePage'
 import { SettingsPage } from './features/settings/SettingsPage'
 
 // Hash router: works identically under any GitHub Pages base path and in the
@@ -22,6 +24,8 @@ const router = createHashRouter([
       { path: 'workouts', element: <WorkoutsPage /> },
       { path: 'reports', element: <ReportsPage /> },
       { path: 'metrics', element: <MetricsPage /> },
+      { path: 'reminders', element: <RemindersPage /> },
+      { path: 'chat', element: <GuidancePage /> },
       { path: 'settings', element: <SettingsPage /> },
     ],
   },

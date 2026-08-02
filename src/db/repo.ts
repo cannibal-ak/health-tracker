@@ -8,9 +8,11 @@ import {
   DEFAULT_PROFILE,
   type AIConfig,
   type BaseEntity,
+  type ChatMessage,
   type ISODate,
   type Metric,
   type Profile,
+  type Reminder,
   type Report,
   type ReportCategory,
   type SyncMeta,
@@ -219,6 +221,63 @@ export function liveMetrics(): Promise<Metric[]> {
     .reverse()
     .filter((m) => !m.deletedAt)
     .toArray()
+}
+
+// ---------- Reminders ----------
+
+export async function addReminder(data: Omit<Reminder, keyof BaseEntity>): Promise<void> {
+  await db.reminders.add(stampNew(data))
+  markDirty()
+}
+
+export async function updateReminder(
+  id: string,
+  changes: Partial<Omit<Reminder, keyof BaseEntity>>,
+): Promise<void> {
+  await db.reminders.update(id, { ...changes, updatedAt: Date.now() })
+  markDirty()
+}
+
+export async function deleteReminder(id: string): Promise<void> {
+  await db.reminders.update(id, { deletedAt: Date.now(), updatedAt: Date.now() })
+  markDirty()
+}
+
+export function liveReminders(): Promise<Reminder[]> {
+  return db.reminders
+    .orderBy('nextDue')
+    .filter((r) => !r.deletedAt)
+    .toArray()
+}
+
+// ---------- Guidance chat ----------
+
+const CHAT_CAP = 50
+
+export async function appendChatMessage(role: 'user' | 'assistant', text: string): Promise<void> {
+  await db.transaction('rw', db.chats, async () => {
+    await db.chats.add(stampNew({ role, text }))
+    // Rolling window: tombstone the oldest beyond the cap.
+    const live = await db.chats.orderBy('updatedAt').filter((c) => !c.deletedAt).toArray()
+    for (const old of live.slice(0, Math.max(0, live.length - CHAT_CAP))) {
+      await db.chats.update(old.id, { deletedAt: Date.now(), updatedAt: Date.now() })
+    }
+  })
+  markDirty()
+}
+
+export async function clearChat(): Promise<void> {
+  const now = Date.now()
+  await db.chats
+    .filter((c) => !c.deletedAt)
+    .modify({ deletedAt: now, updatedAt: now })
+  markDirty()
+}
+
+export async function liveChat(): Promise<ChatMessage[]> {
+  // createdAt is not an index on chats — sort in memory (≤50 rows).
+  const rows = await db.chats.filter((c) => !c.deletedAt).toArray()
+  return rows.sort((a, b) => a.createdAt - b.createdAt)
 }
 
 // ---------- Sync-internal report updates ----------
