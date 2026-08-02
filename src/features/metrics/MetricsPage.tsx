@@ -35,7 +35,10 @@ interface Group {
 function groupMetrics(metrics: Metric[]): Group[] {
   const byKey = new Map<string, Metric[]>()
   for (const m of metrics) {
-    const k = m.key === 'other' ? `other:${m.label.toLowerCase()}` : m.key
+    // 'other' groups by label AND unit — same test name in different units
+    // must never share one trend line.
+    const k =
+      m.key === 'other' ? `other:${m.label.toLowerCase()}:${m.unit.toLowerCase()}` : m.key
     if (!byKey.has(k)) byKey.set(k, [])
     byKey.get(k)!.push(m)
   }

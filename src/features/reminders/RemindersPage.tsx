@@ -35,7 +35,7 @@ function dueLabel(r: Reminder): string {
   const due = new Date(r.nextDue)
   const now = new Date()
   if (due <= now) return 'Due now'
-  const mins = Math.round((due.getTime() - now.getTime()) / 60000)
+  const mins = Math.max(1, Math.round((due.getTime() - now.getTime()) / 60000))
   if (mins < 60) return `in ${mins} min`
   if (mins < 60 * 24) return `in ${Math.round(mins / 60)} h`
   return due.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })

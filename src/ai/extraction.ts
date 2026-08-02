@@ -88,12 +88,13 @@ function toCandidate(raw: unknown): MetricCandidate | null {
   // Convert the printed value (and the lab's printed range) to canonical units.
   const converted = normalizeUnit(def, m.value, m.unit)
   if (converted === null) {
-    // Unit not recognized — keep printed value but treat key as matched;
-    // flag only by the lab's own range and mark for review.
+    // Unit not recognized — store under 'other' (printed label + unit) so an
+    // unconverted value can never sit in a canonical trend group next to
+    // values in a different unit. Flag only by the lab's own range.
     const { flag, source } = computeFlag(undefined, m.value, m.refLow ?? undefined, m.refHigh ?? undefined)
     return {
-      key: def.key,
-      label: def.label,
+      key: 'other',
+      label: m.label,
       value: m.value,
       unit: m.unit,
       labRefLow: m.refLow ?? undefined,
@@ -105,9 +106,11 @@ function toCandidate(raw: unknown): MetricCandidate | null {
     }
   }
 
-  const factor = converted / m.value || 1
-  const labLow = m.refLow != null ? m.refLow * factor : undefined
-  const labHigh = m.refHigh != null ? m.refHigh * factor : undefined
+  // Convert the lab's printed range with the same unit table as the value —
+  // deriving a factor by division breaks when the printed value is 0.
+  const labLow = m.refLow != null ? (normalizeUnit(def, m.refLow, m.unit) ?? undefined) : undefined
+  const labHigh =
+    m.refHigh != null ? (normalizeUnit(def, m.refHigh, m.unit) ?? undefined) : undefined
   const { flag, source } = computeFlag(def, converted, labLow, labHigh)
 
   return {

@@ -97,10 +97,29 @@ USER DATA:
 ${lines.join('\n')}`
 }
 
+/**
+ * Providers (Anthropic especially) require user-first, strictly-alternating
+ * history. The rolling 50-message cap can leave an assistant message first
+ * (or adjacent same-role turns after a failed send) — normalize here.
+ */
+function normalizeHistory(history: ChatMsg[]): ChatMsg[] {
+  const out: ChatMsg[] = []
+  for (const m of history) {
+    if (out.length === 0 && m.role !== 'user') continue // drop leading assistant turns
+    const prev = out[out.length - 1]
+    if (prev && prev.role === m.role) {
+      prev.text = `${prev.text}\n\n${m.text}` // merge consecutive same-role turns
+    } else {
+      out.push({ ...m })
+    }
+  }
+  return out
+}
+
 export async function sendGuidanceMessage(history: ChatMsg[]): Promise<string> {
   const { provider, key, model } = await activeProvider()
   const system = await buildGuidanceSystemPrompt()
-  return provider.chat(system, history, key, model)
+  return provider.chat(system, normalizeHistory(history), key, model)
 }
 
 // ---------- Chat-to-log: parse a workout described in a chat message ----------

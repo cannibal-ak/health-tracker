@@ -130,9 +130,18 @@ async function runSync(interactive: boolean): Promise<SyncResult> {
   if (meta.status === 'disconnected' && !interactive) return { ok: false, error: 'disconnected' }
   if (!navigator.onLine) return { ok: false, error: 'offline' }
 
+  // Fence: if the user taps Disconnect while this cycle runs, no terminal
+  // write may resurrect the connection.
+  const stillConnected = async () =>
+    interactive || (await getSyncMeta()).status !== 'disconnected'
+
   let token: string
   try {
-    token = await getAccessToken(interactive)
+    // After an auth failure (reconnect_needed), an interactive tap must not
+    // be satisfied by a possibly-revoked cached token — force a fresh one.
+    token = await getAccessToken(interactive, {
+      ignoreCache: interactive && meta.status === 'reconnect_needed',
+    })
   } catch (e) {
     if (meta.status !== 'disconnected') {
       await saveSyncMeta({ status: 'reconnect_needed' })
@@ -269,6 +278,8 @@ async function runSync(interactive: boolean): Promise<SyncResult> {
       throw e
     }
 
+    if (!(await stillConnected())) return { ok: false, error: 'disconnected' }
+
     // Interactive connects may have switched Google accounts — re-fetch then.
     const accountEmail = interactive
       ? ((await fetchAccountEmail(token)) ?? meta.accountEmail)
@@ -283,7 +294,16 @@ async function runSync(interactive: boolean): Promise<SyncResult> {
     })
     return { ok: true, restored, foundRemote }
   } catch (e) {
-    await saveSyncMeta({ status: 'error', lastError: e instanceof Error ? e.message : String(e) })
+    // A revoked/expired token surfaces as Drive 401 — evict it and route the
+    // UI to "reconnect" (with a working popup) instead of a dead-end error.
+    if (e instanceof drive.DriveError && e.status === 401) {
+      clearToken()
+      if (await stillConnected()) await saveSyncMeta({ status: 'reconnect_needed' })
+      return { ok: false, error: 'auth-needed' }
+    }
+    if (await stillConnected()) {
+      await saveSyncMeta({ status: 'error', lastError: e instanceof Error ? e.message : String(e) })
+    }
     return { ok: false, error: e instanceof Error ? e.message : String(e) }
   }
 }

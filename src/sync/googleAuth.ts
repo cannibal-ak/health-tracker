@@ -99,9 +99,14 @@ export class AuthNeededError extends Error {
  * Get an access token.
  * - `interactive: false` — silent only; throws AuthNeededError if consent UI would be needed.
  * - `interactive: true` — may open the Google popup (call from a user tap).
+ * - `ignoreCache` — skip the stored token (use after a 401: the cached token
+ *   may be revoked yet still look valid by its local expiry).
  */
-export async function getAccessToken(interactive: boolean): Promise<string> {
-  const cached = cachedToken()
+export async function getAccessToken(
+  interactive: boolean,
+  opts?: { ignoreCache?: boolean },
+): Promise<string> {
+  const cached = opts?.ignoreCache ? null : cachedToken()
   if (cached) return cached
   if (!isDriveConfigured()) throw new Error('Google Drive is not configured')
 

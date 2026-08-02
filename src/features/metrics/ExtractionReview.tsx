@@ -21,8 +21,15 @@ export function ExtractionReview({
   onDone: () => void
 }) {
   const [rows, setRows] = useState<MetricCandidate[]>(outcome.candidates)
-  const [date, setDate] = useState(outcome.testDate ?? report.reportDate)
+  // The AI's testDate is untrusted: accept it only as a valid, non-future
+  // YYYY-MM-DD — otherwise fall back to the report's own date.
+  const [date, setDate] = useState(() => {
+    const t = outcome.testDate
+    return t && /^\d{4}-\d{2}-\d{2}$/.test(t) && t <= todayISO() ? t : report.reportDate
+  })
   const [saving, setSaving] = useState(false)
+
+  const dateValid = /^\d{4}-\d{2}-\d{2}$/.test(date) && date <= todayISO()
 
   const setValue = (i: number, raw: string) => {
     const v = parseFloat(raw)
@@ -32,7 +39,7 @@ export function ExtractionReview({
   }
 
   const save = async () => {
-    if (saving) return
+    if (saving || !dateValid) return
     setSaving(true)
     try {
       await addMetrics(
@@ -119,7 +126,12 @@ export function ExtractionReview({
         </ul>
       )}
 
-      <PrimaryButton onClick={save} disabled={saving || rows.length === 0 || !date}>
+      {!dateValid && (
+        <p className="mb-3 rounded-lg bg-red-50 p-2.5 text-xs text-red-700 dark:bg-red-950 dark:text-red-300">
+          Pick a valid test date (not in the future).
+        </p>
+      )}
+      <PrimaryButton onClick={save} disabled={saving || rows.length === 0 || !dateValid}>
         {saving ? 'Saving…' : `Save ${rows.length} value${rows.length === 1 ? '' : 's'}`}
       </PrimaryButton>
       <p className="mt-3 text-center text-xs text-slate-400">
