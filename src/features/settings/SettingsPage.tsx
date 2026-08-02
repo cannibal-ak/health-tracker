@@ -13,6 +13,27 @@ import { Field, Segmented, Select, TextInput } from '../../ui/Field'
 import { ShareIcon } from '../../ui/Icons'
 import { DriveCard } from './DriveCard'
 import { AICard } from './AICard'
+import { shareExportZip } from '../../lib/exportZip'
+
+function ExportButton() {
+  const [busy, setBusy] = useState(false)
+  return (
+    <button
+      onClick={async () => {
+        setBusy(true)
+        try {
+          await shareExportZip()
+        } finally {
+          setBusy(false)
+        }
+      }}
+      disabled={busy}
+      className="w-full rounded-xl border border-brand-600 px-4 py-3 font-semibold text-brand-600 disabled:opacity-40"
+    >
+      {busy ? 'Preparing…' : 'Export everything (ZIP)'}
+    </button>
+  )
+}
 
 function isStandalone(): boolean {
   return (
@@ -165,6 +186,12 @@ export function SettingsPage() {
         <CardTitle>Storage</CardTitle>
         {storage ? (
           <div className="text-sm text-slate-600 dark:text-slate-300">
+            {storage.quotaBytes > 0 && storage.usageBytes / storage.quotaBytes > 0.8 && (
+              <p className="mb-2 rounded-lg bg-amber-50 p-2.5 text-xs text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
+                Storage is nearly full — deleting old reports (they stay in your Drive backup)
+                frees space.
+              </p>
+            )}
             <div className="flex justify-between py-1">
               <span>Used</span>
               <span className="font-medium">{formatBytes(storage.usageBytes)}</span>
@@ -195,6 +222,15 @@ export function SettingsPage() {
         )}
       </Card>
 
+      <Card className="mb-4">
+        <CardTitle>Export</CardTitle>
+        <p className="mb-3 text-sm text-slate-500 dark:text-slate-400">
+          One ZIP with all your data (JSON) and every report file. Keep it anywhere you like —
+          it never includes your API keys.
+        </p>
+        <ExportButton />
+      </Card>
+
       <Card>
         <CardTitle>About</CardTitle>
         <p className="text-sm text-slate-600 dark:text-slate-300">
@@ -202,7 +238,7 @@ export function SettingsPage() {
         </p>
         <p className="mt-2 text-xs text-slate-400">
           Your data lives on your device and, if connected, in your own Google Drive. AI features
-          are coming in the next updates.
+          run only with your own keys. Nothing here is medical advice.
         </p>
       </Card>
     </div>
