@@ -73,14 +73,25 @@ export function WorkoutForm({
   const setRow = (i: number, patch: Partial<ExerciseRow>) =>
     setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)))
 
-  const valid =
-    type === 'gym'
-      ? fromRows(rows).length > 0 || title.trim()
-      : type === 'sport'
-        ? sport.trim().length > 0
-        : Boolean(parseFloat(distance) || parseInt(duration, 10) || title.trim())
+  const [saving, setSaving] = useState(false)
+
+  // Per-type validity: only fields the current type actually shows count.
+  const valid = (() => {
+    switch (type) {
+      case 'gym':
+        return fromRows(rows).length > 0 || Boolean(title.trim())
+      case 'sport':
+        return sport.trim().length > 0
+      case 'run':
+      case 'walk':
+        return Boolean(parseFloat(distance) || parseInt(duration, 10))
+      case 'other':
+        return Boolean(title.trim())
+    }
+  })()
 
   const save = async () => {
+    if (saving) return
     const data = {
       date,
       type,
@@ -92,9 +103,14 @@ export function WorkoutForm({
       intensity: intensity || undefined,
       note: note.trim() || undefined,
     }
-    if (existing) await updateWorkout(existing.id, data)
-    else await addWorkout(data)
-    onSaved()
+    setSaving(true)
+    try {
+      if (existing) await updateWorkout(existing.id, data)
+      else await addWorkout(data)
+      onSaved()
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -287,8 +303,8 @@ export function WorkoutForm({
         />
       </Field>
 
-      <PrimaryButton onClick={save} disabled={!valid || !date}>
-        {existing ? 'Save changes' : 'Save workout'}
+      <PrimaryButton onClick={save} disabled={saving || !valid || !date || date > todayISO()}>
+        {saving ? 'Saving…' : existing ? 'Save changes' : 'Save workout'}
       </PrimaryButton>
     </div>
   )

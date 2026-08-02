@@ -42,17 +42,20 @@ const exerciseSchema = z
   })
   .passthrough()
 
+// Enum-ish fields are validated as plain strings: a NEWER app version may
+// have added values, and the older device must still be able to merge the
+// doc (all-or-nothing parse would otherwise brick sync both ways).
 const workoutSchema = z
   .object({
     ...base,
     date: z.string(),
-    type: z.enum(['gym', 'run', 'sport', 'walk', 'other']),
+    type: z.string(),
     title: z.string().optional(),
     durationMin: z.number().optional(),
     exercises: z.array(exerciseSchema).optional(),
     distanceKm: z.number().optional(),
     sport: z.string().optional(),
-    intensity: z.enum(['light', 'moderate', 'hard']).optional(),
+    intensity: z.string().optional(),
     note: z.string().optional(),
   })
   .passthrough()
@@ -62,14 +65,14 @@ const reportSchema = z
     ...base,
     title: z.string(),
     reportDate: z.string(),
-    category: z.enum(['blood_test', 'imaging', 'prescription', 'other']),
+    category: z.string(),
     tags: z.array(z.string()),
     mimeType: z.string(),
     sizeBytes: z.number(),
     sha256: z.string(),
     blobId: z.string(),
     driveFileId: z.string().nullable(),
-    extractionStatus: z.enum(['none', 'pending', 'reviewed', 'failed']),
+    extractionStatus: z.string(),
   })
   .passthrough()
 
@@ -82,10 +85,10 @@ const metricSchema = z
     unit: z.string(),
     date: z.string(),
     reportId: z.string().nullable(),
-    source: z.enum(['ai', 'manual']),
+    source: z.string(),
     labRefLow: z.number().optional(),
     labRefHigh: z.number().optional(),
-    flag: z.enum(['low', 'normal', 'high', 'unknown']),
+    flag: z.string(),
     rawText: z.string().optional(),
   })
   .passthrough()
@@ -97,7 +100,7 @@ const reminderSchema = z
     notes: z.string().optional(),
     schedule: z
       .object({
-        freq: z.enum(['once', 'daily', 'weekly', 'monthly', 'every_n_days']),
+        freq: z.string(),
         time: z.string(),
         daysOfWeek: z.array(z.number()).optional(),
         dayOfMonth: z.number().optional(),
@@ -111,9 +114,7 @@ const reminderSchema = z
   })
   .passthrough()
 
-const chatSchema = z
-  .object({ ...base, role: z.enum(['user', 'assistant']), text: z.string() })
-  .passthrough()
+const chatSchema = z.object({ ...base, role: z.string(), text: z.string() }).passthrough()
 
 const profileSchema = z
   .object({
@@ -177,22 +178,48 @@ interface Stamped {
 /**
  * Per-record last-write-wins by updatedAt. Ties keep local. Returns the
  * merged list and how many records the remote side changed/added locally.
+ * `reconcile` lets a table carry fields from the losing record into the
+ * winner (e.g. a driveFileId the winner never learned about).
  */
 export function mergeRecords<T extends Stamped>(
   local: T[],
   remote: T[],
+  reconcile?: (winner: T, loser: T) => T,
 ): { merged: T[]; remoteWins: number } {
   const byId = new Map<string, T>()
   for (const r of local) byId.set(r.id, r)
   let remoteWins = 0
   for (const r of remote) {
     const l = byId.get(r.id)
-    if (!l || r.updatedAt > l.updatedAt) {
+    if (!l) {
       byId.set(r.id, r)
       remoteWins++
+    } else if (r.updatedAt > l.updatedAt) {
+      byId.set(r.id, reconcile ? reconcile(r, l) : r)
+      remoteWins++
+    } else if (reconcile) {
+      const adjusted = reconcile(l, r)
+      if (adjusted !== l) {
+        byId.set(r.id, adjusted)
+        remoteWins++
+      }
     }
   }
   return { merged: [...byId.values()], remoteWins }
+}
+
+/**
+ * A record edited on a device that never saw the Drive upload carries
+ * driveFileId: null — winning the LWW must not forget the uploaded file,
+ * or the next sync re-uploads a duplicate and orphans the old one.
+ */
+function reconcileReport<T extends Stamped>(winner: T, loser: T): T {
+  const w = winner as Stamped & { driveFileId?: string | null }
+  const l = loser as Stamped & { driveFileId?: string | null }
+  if ((w.driveFileId ?? null) === null && l.driveFileId) {
+    return { ...w, driveFileId: l.driveFileId } as unknown as T
+  }
+  return winner
 }
 
 function pruneTombstones<T extends Stamped>(rows: T[], now: number): T[] {
@@ -249,20 +276,35 @@ export async function importMerge(raw: unknown): Promise<MergeStats> {
     bulkPut(rows: unknown[]): Promise<unknown>
   }
 
-  const mergeTable = async (table: StampedTable, rows: unknown[]): Promise<void> => {
+  const mergeTable = async (
+    table: StampedTable,
+    rows: unknown[],
+    reconcile?: (w: Stamped, l: Stamped) => Stamped,
+  ): Promise<Stamped[]> => {
     const local = (await table.toArray()) as Stamped[]
-    const { merged, remoteWins: wins } = mergeRecords(local, rows as Stamped[])
+    const { merged, remoteWins: wins } = mergeRecords(local, rows as Stamped[], reconcile)
     remoteWins += wins
     if (wins > 0) await table.bulkPut(merged)
+    return merged
   }
 
   await db.transaction(
     'rw',
-    [db.weights, db.workouts, db.reports, db.metrics, db.reminders, db.chats, db.settings],
+    [db.weights, db.workouts, db.reports, db.blobs, db.metrics, db.reminders, db.chats, db.settings],
     async () => {
       await mergeTable(db.weights as unknown as StampedTable, doc.weights)
       await mergeTable(db.workouts as unknown as StampedTable, doc.workouts)
-      await mergeTable(db.reports as unknown as StampedTable, doc.reports)
+      const mergedReports = await mergeTable(
+        db.reports as unknown as StampedTable,
+        doc.reports,
+        reconcileReport,
+      )
+      // A report deleted on another device: drop the local binary too, or
+      // orphaned blobs accumulate forever (repo.deleteReport does this for
+      // local deletes; remote tombstones must match).
+      for (const r of mergedReports as (Stamped & { blobId?: string })[]) {
+        if (r.deletedAt && r.blobId) await db.blobs.delete(r.blobId)
+      }
       await mergeTable(db.metrics as unknown as StampedTable, doc.metrics)
       await mergeTable(db.reminders as unknown as StampedTable, doc.reminders)
       await mergeTable(db.chats as unknown as StampedTable, doc.chats)

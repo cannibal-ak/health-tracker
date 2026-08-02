@@ -9,6 +9,7 @@ import {
   type AIConfig,
   type BaseEntity,
   type ISODate,
+  type Metric,
   type Profile,
   type Report,
   type ReportCategory,
@@ -44,23 +45,31 @@ export function stampNew<T extends object>(data: T): T & BaseEntity {
 
 // ---------- Weights ----------
 
-/** One entry per calendar day: updates the existing entry if present. */
+/**
+ * One entry per calendar day: updates the existing entry if present.
+ * Runs in a transaction so a double-tap can't create duplicate rows.
+ */
 export async function upsertWeight(date: ISODate, weightKg: number, note?: string): Promise<void> {
-  const existing = await db.weights.where('date').equals(date).first()
-  if (existing && !existing.deletedAt) {
-    await db.weights.update(existing.id, { weightKg, note, updatedAt: Date.now() })
-  } else if (existing) {
-    // Revive a tombstoned entry for this date.
-    await db.weights.update(existing.id, {
-      weightKg,
-      note,
-      deletedAt: undefined,
-      updatedAt: Date.now(),
-    })
-  } else {
-    await db.weights.add(stampNew({ date, weightKg, note }))
-  }
+  await db.transaction('rw', db.weights, async () => {
+    const existing = await db.weights.where('date').equals(date).first()
+    if (existing) {
+      await db.weights.update(existing.id, {
+        weightKg,
+        note,
+        deletedAt: undefined, // revives a tombstoned entry for this date
+        updatedAt: Date.now(),
+      })
+    } else {
+      await db.weights.add(stampNew({ date, weightKg, note }))
+    }
+  })
   markDirty()
+}
+
+/** Live (non-deleted) entry for one date, if any — used to prefill the form. */
+export async function getWeightForDate(date: ISODate): Promise<WeightEntry | undefined> {
+  const row = await db.weights.where('date').equals(date).first()
+  return row && !row.deletedAt ? row : undefined
 }
 
 export async function deleteWeight(id: string): Promise<void> {
@@ -165,10 +174,51 @@ export async function getProfile(): Promise<Profile> {
   return { ...DEFAULT_PROFILE, ...((row?.value as Profile) ?? {}) }
 }
 
-export async function saveProfile(profile: Profile): Promise<void> {
-  // updatedAt on the row drives the LWW merge for the profile during sync.
-  await db.settings.put({ key: 'profile', value: profile, updatedAt: Date.now() } as never)
+/**
+ * Partial update, merged against the CURRENT stored profile inside a
+ * transaction — two quick field edits must not clobber each other via
+ * stale render-time snapshots.
+ */
+export async function saveProfile(changes: Partial<Profile>): Promise<void> {
+  await db.transaction('rw', db.settings, async () => {
+    const row = await db.settings.get('profile')
+    const current = { ...DEFAULT_PROFILE, ...((row?.value as Profile) ?? {}) }
+    await db.settings.put({
+      key: 'profile',
+      value: { ...current, ...changes },
+      // updatedAt on the row drives the LWW merge for the profile during sync.
+      updatedAt: Date.now(),
+    } as never)
+  })
   markDirty()
+}
+
+// ---------- Metrics ----------
+
+export async function addMetrics(metrics: Omit<Metric, keyof BaseEntity>[]): Promise<void> {
+  await db.metrics.bulkAdd(metrics.map((m) => stampNew(m)))
+  markDirty()
+}
+
+export async function updateMetric(
+  id: string,
+  changes: Partial<Omit<Metric, keyof BaseEntity>>,
+): Promise<void> {
+  await db.metrics.update(id, { ...changes, updatedAt: Date.now() })
+  markDirty()
+}
+
+export async function deleteMetric(id: string): Promise<void> {
+  await db.metrics.update(id, { deletedAt: Date.now(), updatedAt: Date.now() })
+  markDirty()
+}
+
+export function liveMetrics(): Promise<Metric[]> {
+  return db.metrics
+    .orderBy('date')
+    .reverse()
+    .filter((m) => !m.deletedAt)
+    .toArray()
 }
 
 // ---------- Sync-internal report updates ----------

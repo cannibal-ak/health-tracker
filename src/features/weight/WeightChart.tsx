@@ -84,12 +84,15 @@ export function WeightChart({
     let min = Math.min(...values)
     let max = Math.max(...values)
     // If the healthy band is close to the data, include it in view.
+    // `span` has a floor so flat data (all equal weights) still pulls in a
+    // nearby band edge instead of degenerating to a zero-width window.
     if (band) {
-      if (band.high > min - (max - min) && band.high < max + (max - min)) {
+      const span = Math.max(max - min, 2)
+      if (band.high > min - span && band.high < max + span) {
         min = Math.min(min, band.high)
         max = Math.max(max, band.high)
       }
-      if (band.low > min - (max - min) && band.low < max + (max - min)) {
+      if (band.low > min - span && band.low < max + span) {
         min = Math.min(min, band.low)
         max = Math.max(max, band.low)
       }

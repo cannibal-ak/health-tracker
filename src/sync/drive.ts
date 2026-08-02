@@ -48,7 +48,7 @@ export async function searchFiles(token: string, q: string): Promise<DriveFile[]
 /** files.get — verifies existence; throws DriveError(404) when gone. */
 export async function getFileMeta(token: string, fileId: string): Promise<DriveFile> {
   const r = await driveFetch(
-    `${API}/files/${fileId}?fields=id,name,mimeType,appProperties,trashed`,
+    `${API}/files/${fileId}?fields=id,name,mimeType,appProperties,trashed,modifiedTime`,
     token,
   )
   const meta = (await r.json()) as DriveFile & { trashed?: boolean }

@@ -34,10 +34,12 @@ body {
     sans-serif;
 }
 
-/* Safe-area helpers for notched phones (viewport-fit=cover). */
-.pt-safe {
+/* Safe-area helpers for notched phones (viewport-fit=cover).
+   Declared as utilities so they participate in Tailwind's cascade layers
+   instead of overriding p-*/pb-* utilities with 0 on non-notched devices. */
+@utility pt-safe {
   padding-top: env(safe-area-inset-top);
 }
-.pb-safe {
+@utility pb-safe {
   padding-bottom: env(safe-area-inset-bottom);
 }

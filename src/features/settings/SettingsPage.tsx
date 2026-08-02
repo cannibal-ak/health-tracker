@@ -12,6 +12,7 @@ import { Card, CardTitle } from '../../ui/Card'
 import { Field, Segmented, Select, TextInput } from '../../ui/Field'
 import { ShareIcon } from '../../ui/Icons'
 import { DriveCard } from './DriveCard'
+import { AICard } from './AICard'
 
 function isStandalone(): boolean {
   return (
@@ -28,6 +29,7 @@ function isIOS(): boolean {
 export function SettingsPage() {
   const profile = useLiveQuery(getProfile)
   const [storage, setStorage] = useState<StorageInfo | null>(null)
+  const [heightError, setHeightError] = useState<string | null>(null)
 
   useEffect(() => {
     void getStorageInfo().then(setStorage)
@@ -35,8 +37,10 @@ export function SettingsPage() {
 
   if (!profile) return null
 
+  // saveProfile merges partial changes against the stored profile in a
+  // transaction — never spread the render-time snapshot here.
   const update = (changes: Partial<Profile>) => {
-    void saveProfile({ ...profile, ...changes })
+    void saveProfile(changes)
   }
 
   return (
@@ -62,10 +66,25 @@ export function SettingsPage() {
             placeholder="e.g. 172"
             defaultValue={profile.heightCm ?? ''}
             onBlur={(e) => {
-              const v = parseFloat(e.target.value)
-              update({ heightCm: v >= 80 && v <= 250 ? v : undefined })
+              const raw = e.target.value.trim()
+              if (raw === '') {
+                setHeightError(null)
+                update({ heightCm: undefined })
+                return
+              }
+              const v = parseFloat(raw)
+              if (Number.isFinite(v) && v >= 80 && v <= 250) {
+                setHeightError(null)
+                update({ heightCm: v })
+              } else {
+                // Don't silently discard — tell the user and keep the old value.
+                setHeightError('Height must be between 80 and 250 cm — not saved.')
+              }
             }}
           />
+          {heightError && (
+            <span className="mt-1 block text-xs font-medium text-red-600">{heightError}</span>
+          )}
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Birth year">
@@ -109,6 +128,8 @@ export function SettingsPage() {
       </Card>
 
       <DriveCard />
+
+      <AICard />
 
       {!isStandalone() && (
         <Card className="mb-4">

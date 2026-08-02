@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Link } from 'react-router'
-import { deleteWeight, getProfile, liveWeights, upsertWeight } from '../../db/repo'
+import { deleteWeight, getProfile, getWeightForDate, liveWeights, upsertWeight } from '../../db/repo'
 import { addDays, fullDate, todayISO } from '../../lib/dates'
 import { bmi, bmiCategory, BMI_CATEGORY_LABEL, type BmiCategory } from '../../lib/bmi'
 import { formatWeight, fromKg, toKg } from '../../lib/units'
@@ -44,8 +44,25 @@ export function WeightPage() {
   const [date, setDate] = useState(todayISO())
   const [weightInput, setWeightInput] = useState('')
   const [note, setNote] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
 
   const unit = profile?.weightUnit ?? 'kg'
+
+  // When the chosen date already has an entry, prefill its weight and note so
+  // saving updates rather than silently erasing the note.
+  useEffect(() => {
+    if (!sheetOpen) return
+    let stale = false
+    void getWeightForDate(date).then((existing) => {
+      if (stale || !existing) return
+      setWeightInput(fromKg(existing.weightKg, unit).toFixed(1))
+      setNote(existing.note ?? '')
+    })
+    return () => {
+      stale = true
+    }
+  }, [date, sheetOpen, unit])
 
   const chartEntries = useMemo(() => {
     if (!weights) return []
@@ -62,14 +79,38 @@ export function WeightPage() {
     const latest = weights[0]
     setWeightInput(latest ? fromKg(latest.weightKg, unit).toFixed(1) : '')
     setNote('')
+    setFormError(null)
     setSheetOpen(true)
   }
 
+  // Sanity bounds in the displayed unit (20–400 kg).
+  const MIN_KG = 20
+  const MAX_KG = 400
+
   const save = async () => {
+    if (saving) return
+    setFormError(null)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > todayISO()) {
+      setFormError('Pick a valid date (not in the future).')
+      return
+    }
     const v = parseFloat(weightInput)
-    if (!v || v <= 0 || !date) return
-    await upsertWeight(date, toKg(v, unit), note.trim() || undefined)
-    setSheetOpen(false)
+    const kg = toKg(v, unit)
+    if (!Number.isFinite(v) || kg < MIN_KG || kg > MAX_KG) {
+      setFormError(
+        unit === 'kg'
+          ? `Weight must be between ${MIN_KG} and ${MAX_KG} kg.`
+          : `Weight must be between ${Math.round(fromKg(MIN_KG, 'lb'))} and ${Math.round(fromKg(MAX_KG, 'lb'))} lb.`,
+      )
+      return
+    }
+    setSaving(true)
+    try {
+      await upsertWeight(date, kg, note.trim() || undefined)
+      setSheetOpen(false)
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -188,8 +229,13 @@ export function WeightPage() {
             onChange={(e) => setNote(e.target.value)}
           />
         </Field>
-        <PrimaryButton onClick={save} disabled={!parseFloat(weightInput)}>
-          Save
+        {formError && (
+          <p className="mb-3 rounded-lg bg-red-50 p-2.5 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
+            {formError}
+          </p>
+        )}
+        <PrimaryButton onClick={save} disabled={saving || !parseFloat(weightInput)}>
+          {saving ? 'Saving…' : 'Save'}
         </PrimaryButton>
         <p className="mt-3 text-center text-xs text-slate-400">
           Logging on the same date updates that day's entry.

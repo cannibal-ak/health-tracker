@@ -1,15 +1,18 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
+import { Link } from 'react-router'
 import type { Report, ReportCategory } from '../../db/schema'
 import { addReport, deleteReport, liveReports, updateReport } from '../../db/repo'
 import { fullDate, todayISO } from '../../lib/dates'
 import { downscaleImage } from '../../lib/images'
 import { formatBytes } from '../../lib/persistence'
+import { extractFromReport, type ExtractionOutcome } from '../../ai/extraction'
 import { Card, CardTitle } from '../../ui/Card'
 import { Sheet } from '../../ui/Sheet'
 import { EmptyState } from '../../ui/EmptyState'
 import { Field, PrimaryButton, Select, TextInput } from '../../ui/Field'
-import { FileIcon, PlusIcon, TrashIcon } from '../../ui/Icons'
+import { ChevronRightIcon, FileIcon, PlusIcon, TrashIcon } from '../../ui/Icons'
+import { ExtractionReview } from '../metrics/ExtractionReview'
 import { pdfThumbnail } from './pdfUtils'
 import { ReportThumb } from './ReportThumb'
 import { ReportViewer } from './ReportViewer'
@@ -49,6 +52,26 @@ export function ReportsPage() {
   const [tags, setTags] = useState('')
   const [saving, setSaving] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const pickSeq = useRef(0)
+
+  // AI extraction
+  const [extractingId, setExtractingId] = useState<string | null>(null)
+  const [review, setReview] = useState<{ report: Report; outcome: ExtractionOutcome } | null>(null)
+  const [aiError, setAiError] = useState<string | null>(null)
+
+  const runExtraction = async (r: Report) => {
+    if (extractingId) return
+    setAiError(null)
+    setExtractingId(r.id)
+    try {
+      const outcome = await extractFromReport(r)
+      setReview({ report: r, outcome })
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : 'Extraction failed')
+    } finally {
+      setExtractingId(null)
+    }
+  }
 
   const filtered = useMemo(() => {
     if (!reports) return []
@@ -89,22 +112,39 @@ export function ReportsPage() {
     setSheetOpen(true)
   }
 
+  const MAX_FILE_BYTES = 25 * 1024 * 1024
+
   const onPickFile = async (f: File) => {
+    if (f.size > MAX_FILE_BYTES) {
+      setFile(null)
+      setThumb(undefined)
+      setThumbErr(false)
+      setAiError(`That file is ${formatBytes(f.size)} — the limit is 25 MB.`)
+      return
+    }
+    setAiError(null)
+    // Sequence guard: a slow thumbnail for a previously picked file must not
+    // overwrite the thumbnail of the one picked after it.
+    const seq = ++pickSeq.current
     setFile(f)
     setThumb(undefined)
     setThumbErr(false)
     if (!title) setTitle(titleFromFilename(f.name))
     try {
-      if (f.type === 'application/pdf') setThumb(await pdfThumbnail(f))
-      else if (f.type.startsWith('image/')) setThumb(await downscaleImage(f, 320, 0.8))
+      let t: Blob | undefined
+      if (f.type === 'application/pdf') t = await pdfThumbnail(f)
+      else if (f.type.startsWith('image/')) t = await downscaleImage(f, 320, 0.8)
+      if (seq === pickSeq.current && t) setThumb(t)
     } catch {
       // Thumbnail is best-effort; the list falls back to a file icon.
-      setThumbErr(true)
+      if (seq === pickSeq.current) setThumbErr(true)
     }
   }
 
+  const dateValid = /^\d{4}-\d{2}-\d{2}$/.test(date) && date <= todayISO()
+
   const save = async () => {
-    if (saving) return
+    if (saving || !dateValid) return
     const tagList = tags
       .split(',')
       .map((t) => t.trim())
@@ -119,12 +159,23 @@ export function ReportsPage() {
           tags: tagList,
         })
       } else if (file) {
+        // Photos are re-encoded to JPEG at ingest: smaller, and viewable on
+        // every device (iPhone HEIC originals are not). Fall back to the
+        // original if the browser can't decode the format.
+        let toStore: Blob & { type: string } = file
+        if (file.type.startsWith('image/') && file.type !== 'image/jpeg') {
+          try {
+            toStore = await downscaleImage(file, 3000, 0.9)
+          } catch {
+            toStore = file
+          }
+        }
         await addReport({
           title: title.trim() || file.name,
           reportDate: date,
           category,
           tags: tagList,
-          file,
+          file: toStore,
           thumb,
         })
       }
@@ -164,6 +215,20 @@ export function ReportsPage() {
         </Card>
       ) : (
         <>
+          <Link
+            to="/metrics"
+            className="mb-3 flex items-center justify-between rounded-2xl bg-white px-4 py-3 text-sm font-medium shadow-sm ring-1 ring-slate-900/5 hover:bg-slate-50 dark:bg-slate-900 dark:ring-white/10 dark:hover:bg-slate-800"
+          >
+            📊 Health metrics & trends
+            <ChevronRightIcon className="size-4 text-slate-400" />
+          </Link>
+
+          {aiError && (
+            <p className="mb-3 rounded-xl bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
+              {aiError}
+            </p>
+          )}
+
           <div className="mb-3">
             <TextInput
               type="search"
@@ -215,6 +280,24 @@ export function ReportsPage() {
                           </span>
                         )}
                       </span>
+                    </button>
+                    <button
+                      aria-label={`Extract values from ${r.title} with AI`}
+                      onClick={() => void runExtraction(r)}
+                      disabled={extractingId !== null}
+                      className={`rounded-full px-2 py-1 text-xs font-semibold ${
+                        extractingId === r.id
+                          ? 'animate-pulse text-brand-600'
+                          : r.extractionStatus === 'reviewed'
+                            ? 'text-green-600'
+                            : 'text-slate-400 hover:text-brand-600'
+                      }`}
+                    >
+                      {extractingId === r.id
+                        ? 'Reading…'
+                        : r.extractionStatus === 'reviewed'
+                          ? '✓ AI'
+                          : '✨ AI'}
                     </button>
                     <button
                       aria-label={`Edit ${r.title}`}
@@ -329,12 +412,31 @@ export function ReportsPage() {
             onChange={(e) => setTags(e.target.value)}
           />
         </Field>
+        {!dateValid && (
+          <p className="mb-3 rounded-lg bg-red-50 p-2.5 text-xs text-red-700 dark:bg-red-950 dark:text-red-300">
+            Pick a valid report date (not in the future).
+          </p>
+        )}
         <PrimaryButton
           onClick={save}
-          disabled={saving || (!editing && !file) || (!title.trim() && !file)}
+          disabled={saving || !dateValid || (!editing && !file) || (!title.trim() && !file)}
         >
           {saving ? 'Saving…' : editing ? 'Save changes' : 'Save report'}
         </PrimaryButton>
+      </Sheet>
+
+      <Sheet
+        open={review !== null}
+        onClose={() => setReview(null)}
+        title="Review extracted values"
+      >
+        {review && (
+          <ExtractionReview
+            report={review.report}
+            outcome={review.outcome}
+            onDone={() => setReview(null)}
+          />
+        )}
       </Sheet>
 
       {viewing && <ReportViewer report={viewing} onClose={() => setViewing(null)} />}
@@ -344,6 +446,6 @@ export function ReportsPage() {
 
 function ThumbPreview({ blob }: { blob: Blob }) {
   const url = useMemo(() => URL.createObjectURL(blob), [blob])
-  // Revoked when the sheet closes/unmounts.
+  useEffect(() => () => URL.revokeObjectURL(url), [url])
   return <img src={url} alt="" className="size-12 rounded-lg object-cover" />
 }

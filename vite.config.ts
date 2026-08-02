@@ -16,9 +16,13 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // 'prompt': the in-app toast applies updates on tap — an automatic
+      // mid-session reload would wipe in-progress forms.
+      registerType: 'prompt',
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
+        // 'mjs' matters: the pdf.js worker ships as .mjs — without it,
+        // stored PDFs cannot be opened offline.
+        globPatterns: ['**/*.{js,mjs,css,html,svg,png,ico,woff2}'],
         // Health data lives in IndexedDB; the app shell is fully precached for offline use.
         navigateFallback: 'index.html',
       },

@@ -19,6 +19,7 @@ import {
   getReportBlob,
   getSyncMeta,
   isDirty,
+  markDirty,
   putRestoredBlob,
   saveSyncMeta,
   setReportDriveFileId,
@@ -138,9 +139,12 @@ async function runSync(interactive: boolean): Promise<SyncResult> {
     // -- pull + merge (also = restore on fresh installs) --
     let remoteRevision = 0
     let restored: MergeStats | undefined
+    let pulledModifiedTime: string | undefined
     const foundRemote = Boolean(ids.dbFileId)
-    if (ids.dbFileId) {
-      const blob = await drive.downloadFile(token, ids.dbFileId)
+
+    const pullAndMerge = async (fileId: string): Promise<SyncResult | null> => {
+      pulledModifiedTime = (await drive.getFileMeta(token, fileId)).modifiedTime
+      const blob = await drive.downloadFile(token, fileId)
       let raw: unknown
       try {
         raw = JSON.parse(await blob.text())
@@ -151,7 +155,7 @@ async function runSync(interactive: boolean): Promise<SyncResult> {
       }
       try {
         restored = await importMerge(raw)
-        remoteRevision = (raw as { revision?: number }).revision ?? 0
+        remoteRevision = Math.max(remoteRevision, (raw as { revision?: number }).revision ?? 0)
       } catch {
         await saveSyncMeta({
           status: 'error',
@@ -159,6 +163,12 @@ async function runSync(interactive: boolean): Promise<SyncResult> {
         })
         return { ok: false, error: 'invalid-remote' }
       }
+      return null
+    }
+
+    if (ids.dbFileId) {
+      const failure = await pullAndMerge(ids.dbFileId)
+      if (failure) return failure
     }
 
     // -- upload report files that aren't backed up yet --
@@ -187,23 +197,50 @@ async function runSync(interactive: boolean): Promise<SyncResult> {
     for (const r of deleted) {
       try {
         await drive.trashFile(token, r.driveFileId!)
-      } catch {
-        // 404 = already gone; fine either way.
+        await setReportDriveFileId(r.id, null)
+      } catch (e) {
+        if (e instanceof drive.DriveError && e.status === 404) {
+          // Already gone remotely — nothing left to trash.
+          await setReportDriveFileId(r.id, null)
+        }
+        // Any other failure: keep driveFileId so the trash is retried
+        // next cycle instead of permanently orphaning the file in Drive.
       }
-      await setReportDriveFileId(r.id, null)
     }
 
     // -- push the merged doc --
+    // If another device pushed while this cycle ran, merge its doc first so
+    // our upload doesn't silently drop that device's records.
+    if (ids.dbFileId && pulledModifiedTime) {
+      try {
+        const nowMeta = await drive.getFileMeta(token, ids.dbFileId)
+        if (nowMeta.modifiedTime !== pulledModifiedTime) {
+          const failure = await pullAndMerge(ids.dbFileId)
+          if (failure) return failure
+        }
+      } catch {
+        // Meta check is best-effort; the push below still proceeds.
+      }
+    }
+
     const revision = Math.max(remoteRevision, meta.lastRevision ?? 0) + 1
     const doc = await exportDoc(revision, meta.deviceId)
-    const uploaded = await drive.uploadMultipart(token, {
-      fileId: ids.dbFileId ?? undefined,
-      name: DRIVE_DB_FILENAME,
-      mimeType: 'application/json',
-      content: JSON.stringify(doc),
-      parentId: ids.folderId,
-    })
+    // Claim the dirty flag BEFORE uploading: writes that land during the
+    // upload re-set it and correctly schedule another cycle.
     clearDirty()
+    let uploaded: drive.DriveFile
+    try {
+      uploaded = await drive.uploadMultipart(token, {
+        fileId: ids.dbFileId ?? undefined,
+        name: DRIVE_DB_FILENAME,
+        mimeType: 'application/json',
+        content: JSON.stringify(doc),
+        parentId: ids.folderId,
+      })
+    } catch (e) {
+      markDirty() // restore the claim — this data never reached Drive
+      throw e
+    }
 
     const accountEmail = meta.accountEmail ?? (await fetchAccountEmail(token)) ?? undefined
     await saveSyncMeta({
