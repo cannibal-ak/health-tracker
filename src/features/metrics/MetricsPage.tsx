@@ -13,6 +13,7 @@ import {
 import type { Metric } from '../../db/schema'
 import { addMetrics, deleteMetric, liveMetrics } from '../../db/repo'
 import { METRICS, METRIC_BY_KEY } from '../../ai/referenceRanges'
+import { metricGroupKey } from '../../lib/metricGroup'
 import { fullDate, shortDate, todayISO } from '../../lib/dates'
 import { Card, CardTitle } from '../../ui/Card'
 import { Sheet } from '../../ui/Sheet'
@@ -35,10 +36,7 @@ interface Group {
 function groupMetrics(metrics: Metric[]): Group[] {
   const byKey = new Map<string, Metric[]>()
   for (const m of metrics) {
-    // 'other' groups by label AND unit — same test name in different units
-    // must never share one trend line.
-    const k =
-      m.key === 'other' ? `other:${m.label.toLowerCase()}:${m.unit.toLowerCase()}` : m.key
+    const k = metricGroupKey(m)
     if (!byKey.has(k)) byKey.set(k, [])
     byKey.get(k)!.push(m)
   }

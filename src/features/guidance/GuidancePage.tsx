@@ -37,8 +37,10 @@ export function GuidancePage() {
 
   if (!messages) return null
 
-  const send = async () => {
-    const text = input.trim()
+  // Takes the text explicitly so suggestion chips can send in one tap
+  // (state set in the same event would still be stale inside send).
+  const send = async (raw: string) => {
+    const text = raw.trim()
     if (!text || busy) return
     setError(null)
     setInput('')
@@ -150,10 +152,9 @@ export function GuidancePage() {
                   ].map((s) => (
                     <button
                       key={s}
-                      onClick={() => {
-                        setInput(s)
-                      }}
-                      className="rounded-full bg-white px-3.5 py-2 text-xs font-medium text-slate-600 shadow-sm ring-1 ring-slate-900/10 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-300 dark:ring-white/10"
+                      disabled={busy}
+                      onClick={() => void send(s)}
+                      className="rounded-full bg-white px-3.5 py-2 text-xs font-medium text-slate-600 shadow-sm ring-1 ring-slate-900/10 hover:bg-slate-50 disabled:opacity-40 dark:bg-slate-800 dark:text-slate-300 dark:ring-white/10"
                     >
                       {s}
                     </button>
@@ -213,12 +214,12 @@ export function GuidancePage() {
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && void send()}
+              onKeyDown={(e) => e.key === 'Enter' && void send(input)}
               placeholder="Ask about diet, recovery, training…"
               className="min-w-0 flex-1 rounded-full border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 focus:outline-none dark:border-slate-700 dark:bg-slate-800"
             />
             <button
-              onClick={() => void send()}
+              onClick={() => void send(input)}
               disabled={busy || !input.trim()}
               className="shrink-0 rounded-full bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
             >

@@ -17,8 +17,24 @@ import type {
   Workout,
 } from '../db/schema'
 
-export const SCHEMA_VERSION = 1
+export const SCHEMA_VERSION = 2
 const TOMBSTONE_KEEP_MS = 90 * 24 * 3600 * 1000
+
+/** Top-level doc keys this app version reads into tables. */
+const KNOWN_DOC_KEYS = new Set([
+  'schemaVersion',
+  'revision',
+  'exportedAt',
+  'deviceId',
+  'profile',
+  'weights',
+  'workouts',
+  'reports',
+  'metrics',
+  'reminders',
+  'chats',
+  'medicines',
+])
 
 // ---------- Zod schemas (tolerant: unknown extra keys pass through) ----------
 
@@ -245,6 +261,17 @@ function pruneTombstones<T extends Stamped>(rows: T[], now: number): T[] {
 
 // ---------- Export / import against Dexie ----------
 
+/**
+ * Forward-compat: doc keys added by NEWER app versions are stashed at import
+ * and re-emitted at export, so this (then-outdated) version's pushes don't
+ * strip data written by an updated device. (Older shipped bundles lack this,
+ * which is why medicines had a loss window — never again for future fields.)
+ */
+async function getSyncExtras(): Promise<Record<string, unknown>> {
+  const row = await db.settings.get('syncExtras')
+  return (row?.value as Record<string, unknown>) ?? {}
+}
+
 export async function exportDoc(revision: number, deviceId: string): Promise<HealthDoc> {
   const now = Date.now()
   const [weights, workouts, reports, metrics, reminders, chats, medicines, profileRow] =
@@ -259,6 +286,7 @@ export async function exportDoc(revision: number, deviceId: string): Promise<Hea
       db.settings.get('profile'),
     ])
   return {
+    ...(await getSyncExtras()),
     schemaVersion: SCHEMA_VERSION,
     revision,
     exportedAt: now,
@@ -290,6 +318,13 @@ export interface MergeStats {
 export async function importMerge(raw: unknown): Promise<MergeStats> {
   const doc = healthDocSchema.parse(raw) as unknown as HealthDoc
   let remoteWins = 0
+
+  // Stash keys from newer app versions so our next push preserves them.
+  const extras: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (!KNOWN_DOC_KEYS.has(k)) extras[k] = v
+  }
+  await db.settings.put({ key: 'syncExtras', value: extras })
 
   interface StampedTable {
     toArray(): Promise<unknown[]>

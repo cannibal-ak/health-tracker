@@ -11,6 +11,7 @@ import { PROVIDERS } from './registry'
 import { AIProviderError, parseJsonLoose } from './types'
 import { bmi, bmiCategory, BMI_CATEGORY_LABEL } from '../lib/bmi'
 import { addDays, todayISO } from '../lib/dates'
+import { metricGroupKey } from '../lib/metricGroup'
 import { workoutSummary, workoutTitle } from '../features/workouts/workoutMeta'
 
 async function activeProvider() {
@@ -76,7 +77,7 @@ export async function buildGuidanceSystemPrompt(): Promise<string> {
   // assistant can talk about trends, not just the latest number.
   const byKey = new Map<string, (typeof metrics)[number][]>()
   for (const m of [...metrics].sort((a, b) => a.date.localeCompare(b.date))) {
-    const k = m.key === 'other' ? `other:${m.label}:${m.unit}` : m.key
+    const k = metricGroupKey(m) // same grouping as the Metrics tab
     if (!byKey.has(k)) byKey.set(k, [])
     byKey.get(k)!.push(m)
   }
@@ -92,8 +93,13 @@ export async function buildGuidanceSystemPrompt(): Promise<string> {
   }
 
   if (reports.length) {
-    lines.push('Uploaded checkup reports (metadata only — file contents are NOT included here):')
-    for (const r of reports.slice(0, 15)) {
+    const shown = reports.slice(0, 15)
+    lines.push(
+      shown.length < reports.length
+        ? `Uploaded checkup reports (${shown.length} most recent of ${reports.length}; metadata only — file contents are NOT included here):`
+        : 'Uploaded checkup reports (metadata only — file contents are NOT included here):',
+    )
+    for (const r of shown) {
       const read =
         r.extractionStatus === 'reviewed'
           ? 'values extracted into metrics above'

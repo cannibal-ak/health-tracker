@@ -22,6 +22,7 @@ export function MedicinesPage() {
   const [startDate, setStartDate] = useState('')
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
+  const [dateError, setDateError] = useState<string | null>(null)
 
   if (!medicines) return null
 
@@ -36,6 +37,7 @@ export function MedicinesPage() {
     setReason('')
     setStartDate('')
     setNote('')
+    setDateError(null)
     setSheetOpen(true)
   }
 
@@ -45,14 +47,22 @@ export function MedicinesPage() {
     setDose(m.dose ?? '')
     setTiming(m.timing ?? '')
     setReason(m.reason ?? '')
-    setStartDate(m.startDate ?? '')
+    // A malformed/future stored date (e.g. from a device with a wrong clock)
+    // must not brick the edit form — drop it rather than refuse every save.
+    const stored = m.startDate ?? ''
+    setStartDate(/^\d{4}-\d{2}-\d{2}$/.test(stored) && stored <= todayISO() ? stored : '')
     setNote(m.note ?? '')
+    setDateError(null)
     setSheetOpen(true)
   }
 
   const save = async () => {
     if (saving || !name.trim()) return
-    if (startDate && (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || startDate > todayISO())) return
+    if (startDate && (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || startDate > todayISO())) {
+      setDateError("'Taking since' can't be in the future — fix or clear it.")
+      return
+    }
+    setDateError(null)
     setSaving(true)
     try {
       const data = {
@@ -209,8 +219,14 @@ export function MedicinesPage() {
             type="date"
             value={startDate}
             max={todayISO()}
-            onChange={(e) => setStartDate(e.target.value)}
+            onChange={(e) => {
+              setStartDate(e.target.value)
+              setDateError(null)
+            }}
           />
+          {dateError && (
+            <span className="mt-1 block text-xs font-medium text-red-600">{dateError}</span>
+          )}
         </Field>
         <Field label="Note (optional)">
           <TextInput
